@@ -7,8 +7,10 @@ namespace BrunoCPF.Modifiable.Common.Properties
     /// </summary>
     /// <param name="Id">Stable identifier used for replacement and removal.</param>
     /// <param name="FilterFunc">Function that receives and returns the delta.</param>
+    /// <param name="Priority">Lower numbers run earlier.</param>
     public sealed record ValueDeltaFilter<TValue, TContext>(
         string Id,
-        Func<ValueDelta<TValue, TContext>, ValueDelta<TValue, TContext>> FilterFunc
+        Func<ValueDelta<TValue, TContext>, ValueDelta<TValue, TContext>> FilterFunc,
+        int Priority = 0
     );
 }

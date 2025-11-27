@@ -69,14 +69,7 @@ namespace BrunoCPF.Modifiable.Common.Properties
             _valueMath = valueMath ?? ValueMath.GetValueMath<TValue>();
 
             ProcessedDeltas = _rawDeltas
-                .WithLatestFrom(_filters, (delta, filters) =>
-                {
-                    foreach (var filter in filters)
-                    {
-                        delta = filter.FilterFunc(delta);
-                    }
-                    return delta;
-                })
+                .WithLatestFrom(_filters, (delta, filters) => ApplyFilters(delta, filters))
                 .Share();
 
             var clampedInitial = _bounds.Clamp(initialValue);
@@ -91,6 +84,33 @@ namespace BrunoCPF.Modifiable.Common.Properties
                 .CombineLatest(_modifiers, (baseValue, modifiers) => ApplyModifiers(baseValue, modifiers))
                 .ToReadOnlyReactiveProperty()
                 .AddTo(_disposables);
+        }
+
+        /// <summary>
+        /// Creates a modifiable property with optional bounds, initial modifiers/filters, and math helper.
+        /// </summary>
+        public ModifiableProperty(
+            TValue initialValue,
+            TValue min = default,
+            TValue max = default,
+            IEnumerable<ValueModifier<TValue>>? initialModifiers = null,
+            IEnumerable<ValueDeltaFilter<TValue, TContext>>? initialFilters = null,
+            IValueMath<TValue>? valueMath = null
+        ) : this(initialValue, new ValueBounds<TValue>(min, max), initialModifiers, initialFilters, valueMath)
+        { }
+
+        private ValueDelta<TValue, TContext> ApplyFilters(
+            ValueDelta<TValue, TContext> delta,
+            IReadOnlyList<ValueDeltaFilter<TValue, TContext>> filters)
+        {
+            var filteredDelta = delta;
+
+            foreach (var filter in filters.OrderBy(f => f.Priority))
+            {
+                filteredDelta = filter.FilterFunc(filteredDelta);
+            }
+
+            return filteredDelta;
         }
 
         private TValue ApplyBounds(TValue currentValue, TValue delta)
@@ -154,6 +174,7 @@ namespace BrunoCPF.Modifiable.Common.Properties
 
         /// <summary>
         /// Add or replace a modifier with the same ID.
+        /// Higher priority modifiers are applied later.
         /// </summary>
         public void AddOrUpdateModifier(ValueModifier<TValue> modifier)
         {
@@ -171,6 +192,19 @@ namespace BrunoCPF.Modifiable.Common.Properties
         }
 
         /// <summary>
+        /// Add or replace a modifier with the same ID.
+        /// Higher priority modifiers are applied later.
+        /// </summary>
+        public void AddOrUpdateModifier(
+            string id,
+            Func<TValue, TValue> modifyFunc,
+            int priority = 0)
+        {
+            ValueModifier<TValue> modifier = new(id, modifyFunc, priority);
+            AddOrUpdateModifier(modifier);
+        }
+
+        /// <summary>
         /// Remove a modifier by ID.
         /// </summary>
         public void RemoveModifier(string id)
@@ -182,6 +216,7 @@ namespace BrunoCPF.Modifiable.Common.Properties
 
         /// <summary>
         /// Add a modifier and get an <see cref="IDisposable"/> that removes it when disposed.
+        /// Higher priority modifiers are applied later.
         /// </summary>
         public IDisposable PushModifier(ValueModifier<TValue> modifier)
         {
@@ -190,11 +225,23 @@ namespace BrunoCPF.Modifiable.Common.Properties
         }
 
         /// <summary>
+        /// Add a modifier and get an <see cref="IDisposable"/> that removes it when disposed.
+        /// Higher priority modifiers are applied later.
+        /// </summary>
+        public IDisposable PushModifier(
+            string id,
+            Func<TValue, TValue> modifyFunc,
+            int priority = 0)
+        {
+            AddOrUpdateModifier(id, modifyFunc, priority);
+            return Disposable.Create(() => RemoveModifier(id));
+        }
+
+        /// <summary>
         /// Add or replace a filter with the same ID.
         /// </summary>
-        public void AddOrUpdateFilter(string id, Func<ValueDelta<TValue, TContext>, ValueDelta<TValue, TContext>> filterFunc)
+        public void AddOrUpdateFilter(ValueDeltaFilter<TValue, TContext> filter)
         {
-            ValueDeltaFilter<TValue, TContext> filter = new(id, filterFunc);
             List<ValueDeltaFilter<TValue, TContext>> filters = _filters.Value.ToList();
             int index = filters.FindIndex(f => f.Id == filter.Id);
 
@@ -210,6 +257,15 @@ namespace BrunoCPF.Modifiable.Common.Properties
         }
 
         /// <summary>
+        /// Add or replace a filter with the same ID.
+        /// </summary>
+        public void AddOrUpdateFilter(string id, Func<ValueDelta<TValue, TContext>, ValueDelta<TValue, TContext>> filterFunc, int priority = 0)
+        {
+            ValueDeltaFilter<TValue, TContext> filter = new(id, filterFunc, priority);
+            AddOrUpdateFilter(filter);
+        }
+
+        /// <summary>
         /// Remove a filter by ID.
         /// </summary>
         public void RemoveFilter(string id)
@@ -222,9 +278,18 @@ namespace BrunoCPF.Modifiable.Common.Properties
         /// <summary>
         /// Add a filter and get an <see cref="IDisposable"/> that removes it when disposed.
         /// </summary>
-        public IDisposable PushFilter(string id, Func<ValueDelta<TValue, TContext>, ValueDelta<TValue, TContext>> filterFunc)
+        public IDisposable PushFilter(ValueDeltaFilter<TValue, TContext> filter)
         {
-            AddOrUpdateFilter(id, filterFunc);
+            AddOrUpdateFilter(filter);
+            return Disposable.Create(() => RemoveFilter(filter.Id));
+        }
+
+        /// <summary>
+        /// Add a filter and get an <see cref="IDisposable"/> that removes it when disposed.
+        /// </summary>
+        public IDisposable PushFilter(string id, Func<ValueDelta<TValue, TContext>, ValueDelta<TValue, TContext>> filterFunc, int priority = 0)
+        {
+            AddOrUpdateFilter(id, filterFunc, priority);
             return Disposable.Create(() => RemoveFilter(id));
         }
 
