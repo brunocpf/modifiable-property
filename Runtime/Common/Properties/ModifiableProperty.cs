@@ -105,7 +105,7 @@ namespace BrunoCPF.Modifiable.Common.Properties
         {
             var filteredDelta = delta;
 
-            foreach (var filter in filters.OrderBy(f => f.Priority))
+            foreach (var filter in filters)
             {
                 filteredDelta = filter.FilterFunc(filteredDelta);
             }
@@ -134,7 +134,7 @@ namespace BrunoCPF.Modifiable.Common.Properties
         {
             var modifiedValue = baseValue;
 
-            foreach (var modifier in modifiers.OrderBy(m => m.Priority))
+            foreach (var modifier in modifiers)
             {
                 modifiedValue = modifier.ModifyFunc(modifiedValue);
             }
@@ -188,6 +188,8 @@ namespace BrunoCPF.Modifiable.Common.Properties
             {
                 modifiers.Add(modifier);
             }
+
+            modifiers.Sort((a, b) => a.Priority.CompareTo(b.Priority));
             _modifiers.Value = modifiers;
         }
 
@@ -253,6 +255,8 @@ namespace BrunoCPF.Modifiable.Common.Properties
             {
                 filters.Add(filter);
             }
+
+            filters.Sort((a, b) => a.Priority.CompareTo(b.Priority));
             _filters.OnNext(filters);
         }
 
