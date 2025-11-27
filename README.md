@@ -1,6 +1,6 @@
 # Modifiable Properties
 
-Reactive, bounded, and modifiable properties for RPG-style stats (HP, ATK, EXP, etc.).
+Reactive, bounded, and modifiable properties for RPG-style stats (HP, ATK, EXP, etc.), in-game currencies, power-ups, and more.
 
 ## Install (UPM via Git)
 
