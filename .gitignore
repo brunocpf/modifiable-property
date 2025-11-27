@@ -1,0 +1,21 @@
+# OS junk
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vs/
+*.user
+*.suo
+
+# Unity/Build artifacts (if this package is opened standalone)
+Library/
+Temp/
+Obj/
+Logs/
+UserSettings/
+MemoryCaptures/
+
+# Packaging artifacts
+*.tmp
+*.bak

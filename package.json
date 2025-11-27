@@ -1,0 +1,23 @@
+{
+  "name": "com.brunocpf.modifiable-property",
+  "version": "0.1.0",
+  "displayName": "Modifiable Property",
+  "description": "Reactive, bounded, and modifiable properties for RPG-style stat systems.",
+  "author": {
+    "name": "Bruno Fernandes"
+  },
+  "keywords": [
+    "jrpg",
+    "rpg",
+    "stats",
+    "modifiers",
+    "reactive"
+  ],
+  "samples": [
+    {
+      "displayName": "Basic Usage",
+      "description": "Shows how to apply deltas, filters, and modifiers to a property.",
+      "path": "Samples~/BasicUsage"
+    }
+  ]
+}

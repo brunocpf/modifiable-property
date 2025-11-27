@@ -1,0 +1,25 @@
+{
+  "name": "BrunoCPF.Modifiable.Tests",
+  "rootNamespace": "BrunoCPF.Modifiable.Tests",
+  "references": [
+    "BrunoCPF.Modifiable",
+    "UnityEngine.TestRunner",
+    "UnityEditor.TestRunner",
+    "R3.Unity"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "allowUnsafeCode": true,
+  "overrideReferences": true,
+  "precompiledReferences": [
+    "nunit.framework.dll",
+    "R3.dll"
+  ],
+  "autoReferenced": false,
+  "versionDefines": [],
+  "noEngineReferences": false,
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ]
+}
