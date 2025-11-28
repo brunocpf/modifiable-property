@@ -147,10 +147,15 @@ namespace BrunoCPF.Modifiable.Common.Properties
         /// </summary>
         public void AddDelta(ValueDelta<TValue, TContext> delta) => _rawDeltas.OnNext(delta);
 
+        /// <summary
+        /// Injects a delta with context into the property.
+        /// </summary>
+        public void AddDelta(TValue delta, TContext? context) => AddDelta(new ValueDelta<TValue, TContext>(delta, context));
+
         /// <summary>
         /// Injects a delta without context into the property.
         /// </summary>
-        public void AddDelta(TValue delta) => _rawDeltas.OnNext(new ValueDelta<TValue, TContext>(delta, default));
+        public void AddDelta(TValue delta) => AddDelta(new ValueDelta<TValue, TContext>(delta, default));
 
         /// <summary>
         /// Directly set the base value by injecting the required delta.
