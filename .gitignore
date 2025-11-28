@@ -19,3 +19,6 @@ MemoryCaptures/
 # Packaging artifacts
 *.tmp
 *.bak
+
+# Unity metadata (not needed for distributed package)
+*.meta
