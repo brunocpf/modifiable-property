@@ -1,4 +1,4 @@
-# Modifiable Properties
+# `com.brunocpf.modifiable-property`
 
 Reactive, bounded, and modifiable properties for RPG-style stats (HP, ATK, EXP, etc.), in-game currencies, power-ups, and more.
 
