@@ -10,7 +10,7 @@ namespace BrunoCPF.Modifiable.Common.Properties
     /// Reactive value that accepts deltas, applies filters and modifiers, and enforces bounds.
     /// </summary>
     public sealed class ModifiableProperty<TValue, TContext>
-        : Observable<TValue>, IDisposable where TValue : struct, IComparable
+        : Observable<TValue>, IReadOnlyModifiableProperty<TValue>, IDisposable where TValue : struct, IComparable
     {
         private readonly Subject<ValueDelta<TValue, TContext>> _rawDeltas;
         private readonly BehaviorSubject<IReadOnlyList<ValueDeltaFilter<TValue, TContext>>> _filters;
@@ -27,7 +27,7 @@ namespace BrunoCPF.Modifiable.Common.Properties
         /// <summary>
         /// Stream of processed deltas after filters are applied.
         /// </summary>
-        public Observable<ValueDelta<TValue, TContext>> ProcessedDeltas { get; }
+        public IObservable<ValueDelta<TValue, TContext>> ProcessedDeltas { get; }
 
         /// <summary>
         /// Base subject before modifiers are applied.
@@ -42,7 +42,7 @@ namespace BrunoCPF.Modifiable.Common.Properties
         /// <summary>
         /// Observable list of current modifiers.
         /// </summary>
-        public Observable<IReadOnlyList<ValueModifier<TValue>>> Modifiers => _modifiers.AsObservable();
+        public IObservable<IReadOnlyList<ValueModifier<TValue>>> Modifiers => _modifiers.AsSystemObservable();
 
         /// <summary>
         /// Creates a modifiable property with optional bounds, initial modifiers/filters, and math helper.
@@ -70,11 +70,13 @@ namespace BrunoCPF.Modifiable.Common.Properties
 
             ProcessedDeltas = _rawDeltas
                 .WithLatestFrom(_filters, (delta, filters) => ApplyFilters(delta, filters))
-                .Share();
+                .Share()
+                .AsSystemObservable();
 
             var clampedInitial = _bounds.Clamp(initialValue);
 
             Base = ProcessedDeltas
+                .ToObservable()
                 .Scan(clampedInitial, (currentValue, delta) => ApplyBounds(currentValue, delta.Delta))
                 .DistinctUntilChanged()
                 .ToReadOnlyReactiveProperty(clampedInitial)
@@ -326,5 +328,10 @@ namespace BrunoCPF.Modifiable.Common.Properties
             observer.OnErrorResume,
             observer.OnCompleted
         );
+
+        /// <summary>
+        /// Subscribes observers to the effective value stream.
+        /// </summary>
+        public IDisposable Subscribe(IObserver<TValue> observer) => this.AsSystemObservable().Subscribe(observer);
     }
 }
