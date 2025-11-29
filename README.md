@@ -17,24 +17,24 @@ _A reactive, extensible stat & value-transformation pipeline for C# and Unity (p
 
 **ModifiableProperty** is a powerful, reactive wrapper around a value that supports:
 
-- **Deltas** — incremental changes (damage, healing, EXP gain, gold gain)
-- **Filters** — change-time transformations (EXP boosts, healing block, damage reduction)
-- **Bounds** — min/max constraints (HP ≥ 0, HP ≤ MaxHP)
-- **Modifiers** — view-time transformations (equipment, buffs, multipliers)
-- **Disposable Push/Pop Effects** — perfect for RPG buffs, items, equipment, temporary states
-- **Context-aware changes** — pass structured metadata with each delta
-- **Reactive observation** — subscribe to base, effective, or delta streams
-- **Custom numeric support** — define your own math for custom structs
+-   **Deltas** — incremental changes (damage, healing, EXP gain, gold gain)
+-   **Filters** — change-time transformations (EXP boosts, healing block, damage reduction)
+-   **Bounds** — min/max constraints (HP ≥ 0, HP ≤ MaxHP)
+-   **Modifiers** — view-time transformations (equipment, buffs, multipliers)
+-   **Disposable Push/Pop Effects** — perfect for RPG buffs, items, equipment, temporary states
+-   **Context-aware changes** — pass structured metadata with each delta
+-   **Reactive observation** — subscribe to base, effective, or delta streams
+-   **Custom numeric support** — define your own math for custom structs
 
 It is ideal for:
 
-- RPG stats
-- Character attributes
-- Currency systems
-- Simulation values
-- Buff & debuff systems
-- Combat logic
-- Ability and item effects
+-   RPG stats
+-   Character attributes
+-   Currency systems
+-   Simulation values
+-   Buff & debuff systems
+-   Combat logic
+-   Ability and item effects
 
 ---
 
@@ -50,15 +50,15 @@ Or in `Packages/manifest.json`:
 
 ```json
 {
-  "dependencies": {
-    "com.brunocpf.modifiable-property": "https://github.com/brunocpf/modifiable-property.git"
-  }
+    "dependencies": {
+        "com.brunocpf.modifiable-property": "https://github.com/brunocpf/modifiable-property.git"
+    }
 }
 ```
 
 Requires:
 
-- **R3** → https://github.com/Cysharp/R3
+-   **R3** → https://github.com/Cysharp/R3
 
 ---
 
@@ -142,9 +142,9 @@ public sealed class ModifiableProperty<TValue, TContext>
 
 ### ✔ Observe values
 
-- `property.Subscribe(...)`
-- `property.Base.Subscribe(...)`
-- `property.ProcessedDeltas.Subscribe(...)`
+-   `property.Subscribe(...)`
+-   `property.Base.Subscribe(...)`
+-   `property.ProcessedDeltas.Subscribe(...)`
 
 ---
 
@@ -404,6 +404,8 @@ public class Battler
             }
         });
     }
+
+    public override string ToString() => Name;
 }
 
 var hero = new Battler("Hero");
@@ -422,8 +424,8 @@ ally.Hp.AddDelta(+20, new HealCtx(ally));
 
 # Roadmap
 
-- [ ] Unity Samples~/ package
-- [ ] Visual debugging inspector
+-   [ ] Unity Samples~/ package
+-   [ ] Visual debugging inspector
 
 ---
 
