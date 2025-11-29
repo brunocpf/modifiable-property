@@ -10,7 +10,7 @@ namespace BrunoCPF.Modifiable.Common.Properties
     /// Reactive value that accepts deltas, applies filters and modifiers, and enforces bounds.
     /// </summary>
     public sealed class ModifiableProperty<TValue, TContext>
-        : Observable<TValue>, IReadOnlyModifiableProperty<TValue>, IDisposable where TValue : struct, IComparable
+        : Observable<TValue>, IReadOnlyModifiableProperty<TValue, TContext>, IDisposable where TValue : struct, IComparable
     {
         private readonly Subject<ValueDelta<TValue, TContext>> _rawDeltas;
         private readonly BehaviorSubject<IReadOnlyList<ValueDeltaFilter<TValue, TContext>>> _filters;
