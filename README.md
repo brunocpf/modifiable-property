@@ -146,6 +146,21 @@ public sealed class ModifiableProperty<TValue, TContext>
 -   `property.Base.Subscribe(...)`
 -   `property.ProcessedDeltas.Subscribe(...)`
 
+### ✔ Encapsulation
+
+```csharp
+public interface IReadOnlyModifiableProperty<TValue, TContext>
+```
+
+-   Read-only access to ModifiableProperty (exposes value, base and delta streams, but not mutation methods).
+
+Use:
+
+```csharp
+private ModifiableProperty<int, object> hp = new(...);
+public IReadOnlyModifiableProperty<int, object> HP => hp;
+```
+
 ---
 
 # Filters (Change-Time Logic)
