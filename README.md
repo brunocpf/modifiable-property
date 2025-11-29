@@ -427,13 +427,13 @@ ally.Hp.AddDelta(+20, new HealCtx(ally));
 
 ---
 
-# 📄 License
+# License
 
 MIT License © Bruno Fernandes
 Free for commercial and non-commercial use.
 
 ---
 
-# 🙌 Contributing
+# Contributing
 
 PRs welcome!
