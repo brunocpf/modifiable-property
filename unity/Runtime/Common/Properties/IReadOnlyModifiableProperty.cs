@@ -6,7 +6,8 @@ namespace BrunoCPF.Modifiable.Common.Properties
     /// <summary>
     /// Read-only interface for a modifiable property.
     /// </summary>
-    /// <typeparam name="T"></typeparam>
+    /// <typeparam name="TValue">The underlying value type.</typeparam>
+    /// <typeparam name="TContext">The delta context type carried with each change.</typeparam>
     public interface IReadOnlyModifiableProperty<TValue, TContext> : IObservable<TValue>
     {
         /// <summary>
@@ -22,6 +23,6 @@ namespace BrunoCPF.Modifiable.Common.Properties
         /// <summary>
         /// Gets an observable stream of processed value deltas.
         /// </summary>
-        public IObservable<ValueDelta<TValue, TContext>> ProcessedDeltas { get; }
+        public Observable<ValueDelta<TValue, TContext>> ProcessedDeltas { get; }
     }
 }

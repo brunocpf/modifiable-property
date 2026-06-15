@@ -1,14 +1,15 @@
 # `com.brunocpf.modifiable-property`
 
-_A reactive, extensible stat & value-transformation pipeline for C# and Unity (powered by R3)_
+_A reactive, extensible stat & value-transformation pipeline for C#, Unity, and Godot (powered by R3)_
 
 <p align="center">
   <img src="https://img.shields.io/badge/Unity-2021%2B-black?logo=unity" />
-  <img src="https://img.shields.io/badge/C%23-9.0%2B-purple?logo=csharp" />
+  <img src="https://img.shields.io/badge/Godot-4%20(.NET)-478cbf?logo=godotengine&logoColor=white" />
+  <img src="https://img.shields.io/badge/.NET-netstandard2.1-512bd4?logo=dotnet&logoColor=white" />
   <img src="https://img.shields.io/badge/R3-Compatible-blue" />
   <img src="https://img.shields.io/badge/License-MIT-green" />
   <br>
-  <img src="https://img.shields.io/github/stars/brunocpf/modifiable-property?style=social" />
+  <img src="https://img.shields.io/github/stars/brunocpf/com.brunocpf.modifiable-property?style=social" />
 </p>
 
 ---
@@ -40,10 +41,16 @@ It is ideal for:
 
 ## Installation
 
-Add to **Unity Package Manager** via Git URL:
+The library code is **engine-agnostic** (no `UnityEngine` / `Godot` references) and lives in
+one place — `unity/Runtime`. Unity compiles it via the UPM `.asmdef`; the SDK project in `src/`
+compiles the *same* files for Godot / plain .NET / NuGet. Edit once, both engines build it.
+
+### Unity (UPM)
+
+Add via **Package Manager → Add package from git URL**:
 
 ```
-https://github.com/brunocpf/modifiable-property.git
+https://github.com/brunocpf/com.brunocpf.modifiable-property.git?path=unity
 ```
 
 Or in `Packages/manifest.json`:
@@ -51,14 +58,39 @@ Or in `Packages/manifest.json`:
 ```json
 {
     "dependencies": {
-        "com.brunocpf.modifiable-property": "https://github.com/brunocpf/modifiable-property.git"
+        "com.brunocpf.modifiable-property": "https://github.com/brunocpf/com.brunocpf.modifiable-property.git?path=unity"
     }
 }
 ```
 
-Requires:
+> The package lives in the `unity/` subfolder, hence the `?path=unity` suffix.
 
--   **R3** → https://github.com/Cysharp/R3
+**R3 prerequisite (Unity):** install R3 core via [NuGetForUnity](https://github.com/GlitchEnzo/NuGetForUnity)
+(the `R3` NuGet package) plus the [`R3.Unity`](https://github.com/Cysharp/R3) package for the engine
+integration, before adding this package.
+
+### Godot 4 (.NET) / plain .NET
+
+Use the SDK library in `src/`. It targets `netstandard2.1`, which Godot 4's .NET runtime and any
+modern .NET app consume directly; R3 flows in transitively from NuGet.
+
+**Project reference (recommended while iterating locally):**
+
+```xml
+<ItemGroup>
+  <ProjectReference Include="path/to/com.brunocpf.modifiable-property/src/BrunoCPF.Modifiable/BrunoCPF.Modifiable.csproj" />
+</ItemGroup>
+```
+
+**Or pack and consume as a NuGet package:**
+
+```bash
+dotnet pack src/BrunoCPF.Modifiable -c Release   # -> BrunoCPF.Modifiable.0.1.0.nupkg
+dotnet add package BrunoCPF.Modifiable           # once published to a feed
+```
+
+> Outside Unity, never reference `R3.Unity` — the plain `R3` NuGet package (pulled in
+> automatically by the library) is the one you want.
 
 ---
 
@@ -441,6 +473,36 @@ ally.Hp.AddDelta(+20, new HealCtx(ally));
 
 -   [ ] Unity Samples~/ package
 -   [ ] Visual debugging inspector
+
+---
+
+# Repository Layout
+
+```
+.
+├── src/BrunoCPF.Modifiable/          # SDK library (Godot / .NET / NuGet) — compiles the
+│                                     #   source under unity/Runtime; no duplicated code
+├── tests/BrunoCPF.Modifiable.Tests/  # engine-free NUnit suite (dotnet test)
+├── unity/                            # UPM package (consumed via ?path=unity)
+│   ├── package.json
+│   ├── Runtime/                      # the actual source — single source of truth
+│   └── Samples~/                     # Unity-only MonoBehaviour sample
+└── BrunoCPF.Modifiable.slnx
+```
+
+The library code lives **once**, under `unity/Runtime`. Unity compiles it via the `.asmdef`;
+the `src/` project `<Compile Include>`s the same files for everyone else. Keep that code free
+of both `UnityEngine` and `Godot` types — engine-specific glue belongs in `unity/` overlays or
+a future Godot addon, never in the shared source.
+
+# Building & Testing
+
+No engine required — the tests validate the exact code both Unity and Godot consume.
+
+```bash
+dotnet build BrunoCPF.Modifiable.slnx -c Release   # library + tests
+dotnet test  BrunoCPF.Modifiable.slnx -c Release   # engine-free NUnit suite
+```
 
 ---
 

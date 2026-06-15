@@ -1,0 +1,56 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    .NET / Godot distribution of the package.
+
+    This project is the single-source-of-truth build for non-Unity consumers
+    (Godot 4 .NET, plain .NET apps, NuGet). It does NOT own any source files:
+    it compiles the exact same .cs files that Unity consumes via UPM, located
+    under ../../unity/Runtime. Edit the code in one place; both engines build it.
+
+    Unity ignores this .csproj entirely (it compiles the source via the .asmdef
+    in unity/Runtime instead).
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>BrunoCPF.Modifiable</RootNamespace>
+    <AssemblyName>BrunoCPF.Modifiable</AssemblyName>
+    <!-- Source lives under unity/Runtime, not next to this project. -->
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <!-- Ship XML docs for consumer IntelliSense; CS1591 = "missing doc on public member". -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <!-- NuGet package metadata (for `dotnet pack` / Godot consumption). -->
+  <PropertyGroup>
+    <PackageId>BrunoCPF.Modifiable</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>Bruno Fernandes</Authors>
+    <Description>Reactive, bounded, and modifiable properties for RPG-style stat systems.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>rpg;jrpg;stats;modifiers;reactive;godot;unity</PackageTags>
+    <RepositoryUrl>https://github.com/brunocpf/com.brunocpf.modifiable-property</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://github.com/brunocpf/com.brunocpf.modifiable-property</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../../unity/Runtime/**/*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="R3" Version="1.*" />
+  </ItemGroup>
+
+  <!-- Repo README shows on the NuGet.org package page. -->
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+</Project>
