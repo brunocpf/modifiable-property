@@ -24,4 +24,5 @@ MemoryCaptures/
 [Bb]in/
 [Oo]bj/
 artifacts/
+out/
 *.nupkg

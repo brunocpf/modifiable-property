@@ -1,0 +1,41 @@
+name: Publish
+
+# Cut a release by pushing a tag, e.g.:
+#   git tag v0.2.0 && git push origin v0.2.0
+# The package version is taken from the tag (v0.2.0 -> 0.2.0).
+#
+# Requires a repository secret NUGET_API_KEY (nuget.org -> API Keys).
+on:
+  push:
+    tags: [ 'v*' ]
+
+jobs:
+  publish:
+    name: Pack & push to NuGet.org
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            9.0.x
+            10.0.x
+
+      - name: Derive version from tag
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      - name: Test (gate the release)
+        run: dotnet test BrunoCPF.Modifiable.slnx -c Release
+
+      - name: Pack
+        run: >
+          dotnet pack src/BrunoCPF.Modifiable/BrunoCPF.Modifiable.csproj
+          -c Release -p:Version=$VERSION -o out
+
+      - name: Push to NuGet.org
+        run: >
+          dotnet nuget push "out/*.nupkg"
+          --source https://api.nuget.org/v3/index.json
+          --api-key "${{ secrets.NUGET_API_KEY }}"
+          --skip-duplicate

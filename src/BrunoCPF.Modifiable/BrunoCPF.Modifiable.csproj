@@ -21,6 +21,9 @@
     <AssemblyName>BrunoCPF.Modifiable</AssemblyName>
     <!-- Source lives under unity/Runtime, not next to this project. -->
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <!-- Ship XML docs for consumer IntelliSense; CS1591 = "missing doc on public member". -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 
   <!-- NuGet package metadata (for `dotnet pack` / Godot consumption). -->
@@ -33,6 +36,8 @@
     <PackageTags>rpg;jrpg;stats;modifiers;reactive;godot;unity</PackageTags>
     <RepositoryUrl>https://github.com/brunocpf/com.brunocpf.modifiable-property</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://github.com/brunocpf/com.brunocpf.modifiable-property</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
   <ItemGroup>
@@ -41,6 +46,11 @@
 
   <ItemGroup>
     <PackageReference Include="R3" Version="1.*" />
+  </ItemGroup>
+
+  <!-- Repo README shows on the NuGet.org package page. -->
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 
 </Project>
