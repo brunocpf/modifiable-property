@@ -10,8 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   source Unity consumes — no duplicated code.
 - Engine-free NUnit test suite (`tests/`) runnable via `dotnet test` with no Unity/Godot.
 - Solution file (`BrunoCPF.Modifiable.slnx`).
-- GitHub Actions: CI (build + test on push/PR) and tag-driven publishing to NuGet.org
-  (push a `v*` tag; version is derived from the tag).
+- GitHub Actions: CI (build + test on push/PR) and tag-driven publishing to NuGet.org via
+  Trusted Publishing / OIDC — no stored API key (push a `v*` tag; version derived from the tag).
 - NuGet package metadata: README on the package page and shipped XML docs for IntelliSense.
 
 ### Changed

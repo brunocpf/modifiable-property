@@ -4,7 +4,13 @@ name: Publish
 #   git tag v0.2.0 && git push origin v0.2.0
 # The package version is taken from the tag (v0.2.0 -> 0.2.0).
 #
-# Requires a repository secret NUGET_API_KEY (nuget.org -> API Keys).
+# Auth: NuGet Trusted Publishing (OIDC) — no long-lived API key secret.
+# One-time setup on nuget.org (your username -> Trusted Publishing -> add policy):
+#   Repository Owner: brunocpf
+#   Repository:       com.brunocpf.modifiable-property
+#   Workflow File:    publish.yml          (file name only, no path)
+#   Environment:      (leave empty)
+# Then add a repo secret NUGET_USER = your nuget.org profile name (NOT your email).
 on:
   push:
     tags: [ 'v*' ]
@@ -13,6 +19,9 @@ jobs:
   publish:
     name: Pack & push to NuGet.org
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # mint the GitHub OIDC token that Trusted Publishing exchanges
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -33,9 +42,17 @@ jobs:
           dotnet pack src/BrunoCPF.Modifiable/BrunoCPF.Modifiable.csproj
           -c Release -p:Version=$VERSION -o out
 
+      # Exchange the OIDC token for a short-lived (1 h) NuGet API key, right
+      # before push so it can't expire in transit.
+      - name: NuGet login (OIDC)
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
       - name: Push to NuGet.org
         run: >
           dotnet nuget push "out/*.nupkg"
           --source https://api.nuget.org/v3/index.json
-          --api-key "${{ secrets.NUGET_API_KEY }}"
+          --api-key "${{ steps.login.outputs.NUGET_API_KEY }}"
           --skip-duplicate
