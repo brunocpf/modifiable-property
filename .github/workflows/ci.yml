@@ -10,9 +10,9 @@ jobs:
     name: Build & test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v5
         with:
           # 10 SDK builds the solution (.slnx) and netstandard2.1 library;
           # 9 runtime runs the net9.0 test host.

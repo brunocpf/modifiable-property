@@ -6,10 +6,11 @@ _A reactive, extensible stat & value-transformation pipeline for C#, Unity, and 
   <img src="https://img.shields.io/badge/Unity-2021%2B-black?logo=unity" />
   <img src="https://img.shields.io/badge/Godot-4%20(.NET)-478cbf?logo=godotengine&logoColor=white" />
   <img src="https://img.shields.io/badge/.NET-netstandard2.1-512bd4?logo=dotnet&logoColor=white" />
+  <img src="https://img.shields.io/nuget/v/BrunoCPF.Modifiable?logo=nuget&label=NuGet" />
   <img src="https://img.shields.io/badge/R3-Compatible-blue" />
   <img src="https://img.shields.io/badge/License-MIT-green" />
   <br>
-  <img src="https://img.shields.io/github/stars/brunocpf/com.brunocpf.modifiable-property?style=social" />
+  <img src="https://img.shields.io/github/stars/brunocpf/modifiable-property?style=social" />
 </p>
 
 ---
@@ -50,7 +51,7 @@ compiles the *same* files for Godot / plain .NET / NuGet. Edit once, both engine
 Add via **Package Manager → Add package from git URL**:
 
 ```
-https://github.com/brunocpf/com.brunocpf.modifiable-property.git?path=unity
+https://github.com/brunocpf/modifiable-property.git?path=unity
 ```
 
 Or in `Packages/manifest.json`:
@@ -58,7 +59,7 @@ Or in `Packages/manifest.json`:
 ```json
 {
     "dependencies": {
-        "com.brunocpf.modifiable-property": "https://github.com/brunocpf/com.brunocpf.modifiable-property.git?path=unity"
+        "com.brunocpf.modifiable-property": "https://github.com/brunocpf/modifiable-property.git?path=unity"
     }
 }
 ```
@@ -71,22 +72,21 @@ integration, before adding this package.
 
 ### Godot 4 (.NET) / plain .NET
 
-Use the SDK library in `src/`. It targets `netstandard2.1`, which Godot 4's .NET runtime and any
-modern .NET app consume directly; R3 flows in transitively from NuGet.
+The library targets `netstandard2.1`, which Godot 4's .NET runtime and any modern .NET app
+consume directly; R3 flows in transitively.
 
-**Project reference (recommended while iterating locally):**
+**Install from [NuGet.org](https://www.nuget.org/packages/BrunoCPF.Modifiable):**
+
+```bash
+dotnet add package BrunoCPF.Modifiable
+```
+
+**Or reference the source project** (for local iteration / debugging into the library):
 
 ```xml
 <ItemGroup>
-  <ProjectReference Include="path/to/com.brunocpf.modifiable-property/src/BrunoCPF.Modifiable/BrunoCPF.Modifiable.csproj" />
+  <ProjectReference Include="path/to/modifiable-property/src/BrunoCPF.Modifiable/BrunoCPF.Modifiable.csproj" />
 </ItemGroup>
-```
-
-**Or pack and consume as a NuGet package:**
-
-```bash
-dotnet pack src/BrunoCPF.Modifiable -c Release   # -> BrunoCPF.Modifiable.0.1.0.nupkg
-dotnet add package BrunoCPF.Modifiable           # once published to a feed
 ```
 
 > Outside Unity, never reference `R3.Unity` — the plain `R3` NuGet package (pulled in

@@ -7,7 +7,7 @@ name: Publish
 # Auth: NuGet Trusted Publishing (OIDC) — no long-lived API key secret.
 # One-time setup on nuget.org (your username -> Trusted Publishing -> add policy):
 #   Repository Owner: brunocpf
-#   Repository:       com.brunocpf.modifiable-property
+#   Repository:       modifiable-property
 #   Workflow File:    publish.yml          (file name only, no path)
 #   Environment:      (leave empty)
 # Then add a repo secret NUGET_USER = your nuget.org profile name (NOT your email).
@@ -23,9 +23,9 @@ jobs:
       id-token: write   # mint the GitHub OIDC token that Trusted Publishing exchanges
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: |
             9.0.x

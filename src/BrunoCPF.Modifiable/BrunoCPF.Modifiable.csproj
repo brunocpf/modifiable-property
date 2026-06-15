@@ -34,9 +34,9 @@
     <Description>Reactive, bounded, and modifiable properties for RPG-style stat systems.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>rpg;jrpg;stats;modifiers;reactive;godot;unity</PackageTags>
-    <RepositoryUrl>https://github.com/brunocpf/com.brunocpf.modifiable-property</RepositoryUrl>
+    <RepositoryUrl>https://github.com/brunocpf/modifiable-property</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageProjectUrl>https://github.com/brunocpf/com.brunocpf.modifiable-property</PackageProjectUrl>
+    <PackageProjectUrl>https://github.com/brunocpf/modifiable-property</PackageProjectUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
