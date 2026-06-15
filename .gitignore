@@ -19,3 +19,9 @@ MemoryCaptures/
 # Packaging artifacts
 *.tmp
 *.bak
+
+# .NET / SDK build output (src, tests)
+[Bb]in/
+[Oo]bj/
+artifacts/
+*.nupkg

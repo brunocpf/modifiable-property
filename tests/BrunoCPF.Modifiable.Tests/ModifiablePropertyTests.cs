@@ -3,7 +3,7 @@ using BrunoCPF.Modifiable.Common.Properties;
 using NUnit.Framework;
 using R3;
 
-namespace BrunoCPF.Modifiable.Tests.Runtime
+namespace BrunoCPF.Modifiable.Tests
 {
     public class ModifiablePropertyTests
     {

@@ -27,7 +27,7 @@ namespace BrunoCPF.Modifiable.Common.Properties
         /// <summary>
         /// Stream of processed deltas after filters are applied.
         /// </summary>
-        public IObservable<ValueDelta<TValue, TContext>> ProcessedDeltas { get; }
+        public Observable<ValueDelta<TValue, TContext>> ProcessedDeltas { get; }
 
         /// <summary>
         /// Base subject before modifiers are applied.
@@ -42,7 +42,7 @@ namespace BrunoCPF.Modifiable.Common.Properties
         /// <summary>
         /// Observable list of current modifiers.
         /// </summary>
-        public IObservable<IReadOnlyList<ValueModifier<TValue>>> Modifiers => _modifiers.AsSystemObservable();
+        public Observable<IReadOnlyList<ValueModifier<TValue>>> Modifiers => _modifiers;
 
         /// <summary>
         /// Creates a modifiable property with optional bounds, initial modifiers/filters, and math helper.
@@ -70,13 +70,11 @@ namespace BrunoCPF.Modifiable.Common.Properties
 
             ProcessedDeltas = _rawDeltas
                 .WithLatestFrom(_filters, (delta, filters) => ApplyFilters(delta, filters))
-                .Share()
-                .AsSystemObservable();
+                .Share();
 
             var clampedInitial = _bounds.Clamp(initialValue);
 
             Base = ProcessedDeltas
-                .ToObservable()
                 .Scan(clampedInitial, (currentValue, delta) => ApplyBounds(currentValue, delta.Delta))
                 .DistinctUntilChanged()
                 .ToReadOnlyReactiveProperty(clampedInitial)

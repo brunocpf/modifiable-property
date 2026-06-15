@@ -22,6 +22,6 @@ namespace BrunoCPF.Modifiable.Common.Properties
         /// <summary>
         /// Gets an observable stream of processed value deltas.
         /// </summary>
-        public IObservable<ValueDelta<TValue, TContext>> ProcessedDeltas { get; }
+        public Observable<ValueDelta<TValue, TContext>> ProcessedDeltas { get; }
     }
 }
