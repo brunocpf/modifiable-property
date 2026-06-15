@@ -16,7 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 - **UPM package moved into the `unity/` subfolder.** Git install URLs now need the `?path=unity`
-  suffix (e.g. `...com.brunocpf.modifiable-property.git?path=unity`).
+  suffix (e.g. `...modifiable-property.git?path=unity`).
 - **`ProcessedDeltas` and `Modifiers` now return R3 `Observable<T>`** instead of
   `System.IObservable<T>`, for consistency with the rest of the (R3-based) API and direct access
   to R3 operators / `Subscribe(Action)` without a `.ToObservable()` conversion.
