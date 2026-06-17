@@ -331,5 +331,34 @@ namespace BrunoCPF.Modifiable.Common.Properties
         /// Subscribes observers to the effective value stream.
         /// </summary>
         public IDisposable Subscribe(IObserver<TValue> observer) => this.AsSystemObservable().Subscribe(observer);
+
+        /// <summary>
+        /// Returns a read-only view over this property. The view forwards reads and the value stream
+        /// but exposes no mutating members, and — unlike returning the property itself typed as
+        /// <see cref="IReadOnlyModifiableProperty{TValue, TContext}"/> — it cannot be cast back to
+        /// <see cref="ModifiableProperty{TValue, TContext}"/> to regain write access. A new lightweight
+        /// view is returned per call; cache it if you need a stable reference.
+        /// </summary>
+        public IReadOnlyModifiableProperty<TValue, TContext> AsReadOnly() => new ReadOnlyView(this);
+
+        /// <summary>
+        /// Private read-only adapter. Being private and not deriving from
+        /// <see cref="ModifiableProperty{TValue, TContext}"/>, no consumer downcast can reach the
+        /// writable API.
+        /// </summary>
+        private sealed class ReadOnlyView : IReadOnlyModifiableProperty<TValue, TContext>
+        {
+            private readonly ModifiableProperty<TValue, TContext> _source;
+
+            public ReadOnlyView(ModifiableProperty<TValue, TContext> source) => _source = source;
+
+            public TValue CurrentValue => _source.CurrentValue;
+
+            public ReadOnlyReactiveProperty<TValue> Base => _source.Base;
+
+            public Observable<ValueDelta<TValue, TContext>> ProcessedDeltas => _source.ProcessedDeltas;
+
+            public IDisposable Subscribe(IObserver<TValue> observer) => _source.Subscribe(observer);
+        }
     }
 }
