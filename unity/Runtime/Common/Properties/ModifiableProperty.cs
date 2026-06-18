@@ -18,6 +18,7 @@ namespace BrunoCPF.Modifiable.Common.Properties
         private readonly ValueBounds<TValue> _bounds;
         private readonly IValueMath<TValue>? _valueMath;
         private readonly CompositeDisposable _disposables = new();
+        private bool _disposed;
 
         /// <summary>
         /// Current effective value after modifiers are applied.
@@ -216,6 +217,14 @@ namespace BrunoCPF.Modifiable.Common.Properties
         /// </summary>
         public void RemoveModifier(string id)
         {
+            // No-op once disposed: removal is cleanup, and the disposables handed out by
+            // PushModifier routinely run during teardown, when the owning property may already
+            // be gone (e.g. dependency disposal ordering).
+            if (_disposed)
+            {
+                return;
+            }
+
             List<ValueModifier<TValue>> modifiers = _modifiers.Value.ToList();
             _ = modifiers.RemoveAll(m => m.Id == id);
             _modifiers.Value = modifiers;
@@ -279,6 +288,12 @@ namespace BrunoCPF.Modifiable.Common.Properties
         /// </summary>
         public void RemoveFilter(string id)
         {
+            // No-op once disposed; see RemoveModifier.
+            if (_disposed)
+            {
+                return;
+            }
+
             List<ValueDeltaFilter<TValue, TContext>> filters = _filters.Value.ToList();
             _ = filters.RemoveAll(f => f.Id == id);
             _filters.OnNext(filters);
@@ -305,13 +320,28 @@ namespace BrunoCPF.Modifiable.Common.Properties
         /// <summary>
         /// Remove all filters.
         /// </summary>
-        public void ClearFilters() => _filters.OnNext(new List<ValueDeltaFilter<TValue, TContext>>());
+        public void ClearFilters()
+        {
+            // No-op once disposed; see RemoveModifier.
+            if (_disposed)
+            {
+                return;
+            }
+
+            _filters.OnNext(new List<ValueDeltaFilter<TValue, TContext>>());
+        }
 
         /// <summary>
         /// Disposes subscriptions and internal observables.
         /// </summary>
         public void Dispose()
         {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
             _disposables.Dispose();
             _rawDeltas.Dispose();
             _filters.Dispose();

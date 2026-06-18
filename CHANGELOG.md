@@ -5,6 +5,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-06-17
+### Fixed
+- Removal/cleanup on a disposed `ModifiableProperty<TValue, TContext>` no longer throws
+  `ObjectDisposedException`. `RemoveModifier`, `RemoveFilter`, `ClearFilters`, and the `IDisposable`
+  handles returned by `PushModifier` / `PushFilter` are now no-ops after `Dispose()`. This makes the
+  disposable-handle pattern safe during teardown, where the owning property may already have been
+  disposed by dependency-disposal ordering (e.g. a DI scope tearing down a stats system before the
+  effect that pushed a modifier onto it). Adds/mutations after `Dispose()` still throw — that remains
+  genuine misuse.
+- `Dispose()` is now idempotent.
+
 ## [0.3.0] - 2026-06-17
 ### Added
 - `ModifiableProperty<TValue, TContext>.AsReadOnly()` returns an

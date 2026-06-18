@@ -185,5 +185,54 @@ namespace BrunoCPF.Modifiable.Tests
 
             Assert.AreEqual(500, maxHp.CurrentValue);
         }
+
+        [Test]
+        public void RemoveModifier_AfterDispose_DoesNotThrow()
+        {
+            ModifiableProperty<int, object> property = new(100, new ValueBounds<int>(0, 1000));
+            property.AddOrUpdateModifier("buff", v => v + 10);
+            property.Dispose();
+
+            Assert.DoesNotThrow(() => property.RemoveModifier("buff"));
+        }
+
+        [Test]
+        public void DisposingPushModifierHandle_AfterPropertyDisposed_DoesNotThrow()
+        {
+            ModifiableProperty<int, object> property = new(100, new ValueBounds<int>(0, 1000));
+            IDisposable handle = property.PushModifier("buff", v => v + 10);
+            property.Dispose();
+
+            Assert.DoesNotThrow(handle.Dispose);
+        }
+
+        [Test]
+        public void RemoveFilter_AfterDispose_DoesNotThrow()
+        {
+            ModifiableProperty<int, object> property = new(100, new ValueBounds<int>(0, 1000));
+            property.AddOrUpdateFilter("noop", delta => delta);
+            property.Dispose();
+
+            Assert.DoesNotThrow(() => property.RemoveFilter("noop"));
+        }
+
+        [Test]
+        public void ClearFilters_AfterDispose_DoesNotThrow()
+        {
+            ModifiableProperty<int, object> property = new(100, new ValueBounds<int>(0, 1000));
+            property.AddOrUpdateFilter("noop", delta => delta);
+            property.Dispose();
+
+            Assert.DoesNotThrow(property.ClearFilters);
+        }
+
+        [Test]
+        public void Dispose_IsIdempotent()
+        {
+            ModifiableProperty<int, object> property = new(100, new ValueBounds<int>(0, 1000));
+            property.Dispose();
+
+            Assert.DoesNotThrow(property.Dispose);
+        }
     }
 }
