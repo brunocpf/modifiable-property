@@ -122,6 +122,18 @@ namespace BrunoCPF.Modifiable.Tests
         }
 
         [Test]
+        public void LongExpDeltas_AccumulateInsteadOfReplacingTheCurrentValue()
+        {
+            using ModifiableProperty<long, object> exp = new(0L, new ValueBounds<long>(0L, long.MaxValue));
+
+            exp.AddDelta(2472L);
+            exp.AddDelta(67L);
+
+            Assert.AreEqual(2539L, exp.CurrentValue);
+            Assert.AreEqual(2539L, exp.Base.CurrentValue);
+        }
+
+        [Test]
         public void HpAndMaxHpFlow_MatchesSampleExpectations()
         {
             using ModifiableProperty<int, object> maxHp = new(500, new ValueBounds<int>(1, int.MaxValue));

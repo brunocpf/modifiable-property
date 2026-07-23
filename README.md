@@ -299,7 +299,7 @@ hp.PushFilter("shield", d =>
 
 # Custom Math (Non-Numeric Types)
 
-By default, `ModifiableProperty` supports all built-in numeric types (int, float, double, etc).
+By default, `ModifiableProperty` provides arithmetic for `int`, `long`, `float`, and `double`.
 
 If your type doesn’t support numeric operators, supply custom math:
 
@@ -322,7 +322,7 @@ var mana = new ModifiableProperty<Mana, object>(
 );
 ```
 
-This is particularly usefult for enums with custom logic (e.g., elemental affinities).
+This is particularly useful for enums with custom logic (e.g., elemental affinities).
 
 If you don't provide custom math and use a non-numeric type, you might get unexpected behavior.
 

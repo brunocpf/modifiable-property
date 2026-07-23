@@ -11,6 +11,11 @@ namespace BrunoCPF.Modifiable.Common.Math
         public static readonly IValueMath<int> Int = new IntValueMath();
 
         /// <summary>
+        /// Default long integer math implementation.
+        /// </summary>
+        public static readonly IValueMath<long> Long = new LongValueMath();
+
+        /// <summary>
         /// Default float math implementation.
         /// </summary>
         public static readonly IValueMath<float> Float = new FloatValueMath();
@@ -28,6 +33,10 @@ namespace BrunoCPF.Modifiable.Common.Math
             if (typeof(TValue) == typeof(int))
             {
                 return (IValueMath<TValue>)Int;
+            }
+            else if (typeof(TValue) == typeof(long))
+            {
+                return (IValueMath<TValue>)Long;
             }
             else if (typeof(TValue) == typeof(float))
             {
