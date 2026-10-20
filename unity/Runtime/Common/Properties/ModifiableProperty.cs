@@ -60,11 +60,11 @@ namespace BrunoCPF.Modifiable.Common.Properties
             _rawDeltas = new Subject<ValueDelta<TValue, TContext>>();
 
             _modifiers = new ReactiveProperty<IReadOnlyList<ValueModifier<TValue>>>(
-                initialModifiers?.ToList() ?? new List<ValueModifier<TValue>>()
+                SortByPriority(initialModifiers, m => m.Priority)
             );
 
             _filters = new BehaviorSubject<IReadOnlyList<ValueDeltaFilter<TValue, TContext>>>(
-                initialFilters?.ToList() ?? new List<ValueDeltaFilter<TValue, TContext>>()
+                SortByPriority(initialFilters, f => f.Priority)
             );
 
             _valueMath = valueMath ?? ValueMath.GetValueMath<TValue>();
@@ -99,6 +99,45 @@ namespace BrunoCPF.Modifiable.Common.Properties
             IValueMath<TValue>? valueMath = null
         ) : this(initialValue, new ValueBounds<TValue>(min, max), initialModifiers, initialFilters, valueMath)
         { }
+
+        private static List<T> SortByPriority<T>(IEnumerable<T>? items, Func<T, int> priority)
+        {
+            var list = items?.ToList() ?? new List<T>();
+
+            // List<T>.Sort is unstable; OrderBy is stable, so equal priorities keep the given order.
+            return list.OrderBy(priority).ToList();
+        }
+
+        /// <summary>
+        /// Replaces the entry matching <paramref name="isSame"/> in place when its priority is unchanged,
+        /// otherwise inserts <paramref name="item"/> after every entry of equal or lower priority. The
+        /// list is already priority-ordered, so this keeps it sorted and stable (equal priorities stay
+        /// in insertion order) without a sort or extra allocation.
+        /// </summary>
+        private static void UpsertByPriority<T>(List<T> list, T item, Predicate<T> isSame, Func<T, int> priority)
+        {
+            int itemPriority = priority(item);
+            int existing = list.FindIndex(isSame);
+
+            if (existing >= 0)
+            {
+                if (priority(list[existing]) == itemPriority)
+                {
+                    list[existing] = item;
+                    return;
+                }
+
+                list.RemoveAt(existing);
+            }
+
+            int index = list.Count;
+            while (index > 0 && priority(list[index - 1]) > itemPriority)
+            {
+                index--;
+            }
+
+            list.Insert(index, item);
+        }
 
         private ValueDelta<TValue, TContext> ApplyFilters(
             ValueDelta<TValue, TContext> delta,
@@ -180,22 +219,13 @@ namespace BrunoCPF.Modifiable.Common.Properties
 
         /// <summary>
         /// Add or replace a modifier with the same ID.
-        /// Higher priority modifiers are applied later.
+        /// Higher priority modifiers are applied later; modifiers with equal priority are applied in
+        /// insertion order. Replacing a modifier keeps its position while its priority is unchanged.
         /// </summary>
         public void AddOrUpdateModifier(ValueModifier<TValue> modifier)
         {
             List<ValueModifier<TValue>> modifiers = _modifiers.Value.ToList();
-            int index = modifiers.FindIndex(m => m.Id == modifier.Id);
-            if (index >= 0)
-            {
-                modifiers[index] = modifier;
-            }
-            else
-            {
-                modifiers.Add(modifier);
-            }
-
-            modifiers.Sort((a, b) => a.Priority.CompareTo(b.Priority));
+            UpsertByPriority(modifiers, modifier, m => m.Id == modifier.Id, m => m.Priority);
             _modifiers.Value = modifiers;
         }
 
@@ -255,22 +285,13 @@ namespace BrunoCPF.Modifiable.Common.Properties
 
         /// <summary>
         /// Add or replace a filter with the same ID.
+        /// Filters with equal priority run in insertion order. Replacing a filter keeps its position
+        /// while its priority is unchanged.
         /// </summary>
         public void AddOrUpdateFilter(ValueDeltaFilter<TValue, TContext> filter)
         {
             List<ValueDeltaFilter<TValue, TContext>> filters = _filters.Value.ToList();
-            int index = filters.FindIndex(f => f.Id == filter.Id);
-
-            if (index >= 0)
-            {
-                filters[index] = filter;
-            }
-            else
-            {
-                filters.Add(filter);
-            }
-
-            filters.Sort((a, b) => a.Priority.CompareTo(b.Priority));
+            UpsertByPriority(filters, filter, f => f.Id == filter.Id, f => f.Priority);
             _filters.OnNext(filters);
         }
 

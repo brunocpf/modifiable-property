@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Fixed
+- Modifiers and filters with equal priority are now applied in insertion order. Previously they were
+  ordered with the unstable `List<T>.Sort`, so equal-priority, non-commutative entries (e.g. one
+  adds, one multiplies) could resolve in a different order than they were added. Entries are now
+  inserted at the end of their priority group without re-sorting the whole list. Replacing an entry
+  with the same ID keeps its position while its priority is unchanged; removing and re-adding moves
+  it to the end of its priority group. `initialModifiers` / `initialFilters` are stably sorted by
+  priority as well.
 
 ## [0.3.1] - 2026-06-17
 ### Fixed
