@@ -223,7 +223,7 @@ hp.PushFilter(
 );
 ```
 
-Filters run in **priority order** (the third argument), lowest first.
+Filters run in **priority order** (the third argument), lowest first. Filters with equal priority run in the order they were added.
 
 ---
 
@@ -249,7 +249,7 @@ atk.PushModifier("atk-up", v => (int)(v * 1.2f));
 atk.PushModifier("atk-down", v => (int)(v * 0.5f));
 ```
 
-Modifiers also stack in **priority order** (third argument), lowest first.
+Modifiers also stack in **priority order** (third argument), lowest first. Modifiers with equal priority apply in the order they were added, so non-commutative modifiers (e.g. add vs. multiply) resolve deterministically.
 
 In most cases, you want flat bonuses to have a lower priority than multipliers.
 
