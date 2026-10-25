@@ -173,6 +173,70 @@ namespace BrunoCPF.Modifiable.Tests
         private sealed record BuffSource(string Status, int Instance);
 
         [Test]
+        public void NonStackingGroups_MustShareOneOperation()
+        {
+            Modifier<string>[] mixed =
+            {
+                new Modifier<string>(ModifierOperation.Multiply, 2, StackGroup: "boost"),
+                new Modifier<string>(ModifierOperation.Add, 5, StackGroup: "boost"),
+            };
+
+            Assert.Throws<InvalidOperationException>(() => ModifierStack.Evaluate(100, mixed, stacking: _ => StackPolicy.HighestOnly));
+            Assert.AreEqual(205, ModifierStack.Evaluate(100, mixed), "stacking groups may mix operations");
+        }
+
+        [Test]
+        public void NonStackingGroups_MustShareOneCustomName()
+        {
+            var operations = new CustomOperations()
+                .AddModifierOperation("a", static (v, _) => v)
+                .AddModifierOperation("b", static (v, _) => v);
+            Modifier<string>[] mixed =
+            {
+                new Modifier<string>(ModifierOperation.Custom, 1, StackGroup: "g", CustomName: "a"),
+                new Modifier<string>(ModifierOperation.Custom, 2, StackGroup: "g", CustomName: "b"),
+            };
+
+            Assert.Throws<InvalidOperationException>(() =>
+                ModifierStack.Evaluate(1, mixed, stacking: _ => StackPolicy.LowestOnly, operations: operations));
+        }
+
+        [Test]
+        public void Penalties_UseLowestOnlyToKeepTheStrongest()
+        {
+            Modifier<string>[] debuffs =
+            {
+                new Modifier<string>(ModifierOperation.Add, -30, StackGroup: "atk-down"),
+                new Modifier<string>(ModifierOperation.Add, -10, StackGroup: "atk-down"),
+            };
+
+            Assert.AreEqual(70, ModifierStack.Evaluate(100, debuffs, stacking: _ => StackPolicy.LowestOnly));
+            Assert.AreEqual(90, ModifierStack.Evaluate(100, debuffs, stacking: _ => StackPolicy.HighestOnly));
+        }
+
+        [Test]
+        public void With_WorksOnEveryMemberAndStillValidates()
+        {
+            var modifier = new Modifier<string>(ModifierOperation.Add, 1, Source: "a");
+
+            Modifier<string> changed = modifier with { Value = 2, Priority = 3, StackGroup = "g", Source = "b" };
+
+            Assert.AreEqual((2d, 3, "g", "b"), (changed.Value, changed.Priority, changed.StackGroup, changed.Source));
+            Assert.Throws<ArgumentOutOfRangeException>(() => _ = modifier with { Value = double.NaN });
+            Assert.Throws<ArgumentException>(() => _ = modifier with { StackGroup = " " });
+        }
+
+        [Test]
+        public void With_InconsistentCustomPairing_IsCaughtAtEvaluation()
+        {
+            Modifier<string> custom = new Modifier<string>(ModifierOperation.Add, 1) with { Operation = ModifierOperation.Custom };
+            Modifier<string> named = new Modifier<string>(ModifierOperation.Add, 1) with { CustomName = "soft-cap" };
+
+            Assert.Throws<InvalidOperationException>(() => ModifierStack.Evaluate(1, new[] { custom }));
+            Assert.Throws<InvalidOperationException>(() => ModifierStack.Evaluate(1, new[] { named }));
+        }
+
+        [Test]
         public void Evaluate_RequiresScalableMathForUnknownTypes()
         {
             Assert.Throws<InvalidOperationException>(() =>

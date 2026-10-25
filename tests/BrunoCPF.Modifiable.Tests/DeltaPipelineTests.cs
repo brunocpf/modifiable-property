@@ -133,6 +133,19 @@ namespace BrunoCPF.Modifiable.Tests
         }
 
         [Test]
+        public void With_WorksOnDeltaFiltersAndCrossMemberRulesAreCheckedWhenApplied()
+        {
+            var cap = new DeltaFilter<string>(DeltaOperation.CapMagnitude, 10, Source: "cap");
+
+            DeltaFilter<string> wider = cap with { Value = 20, AppliesTo = DeltaDirection.Decrease };
+            DeltaFilter<string> negative = cap with { Value = -5 };
+
+            Assert.AreEqual(-20, DeltaPipeline.Apply(0, -50, new[] { wider }).Filtered);
+            Assert.Throws<ArgumentException>(() => DeltaPipeline.Apply(0, -50, new[] { negative }));
+            Assert.Throws<ArgumentOutOfRangeException>(() => _ = cap with { AppliesTo = (DeltaDirection)9 });
+        }
+
+        [Test]
         public void DeltaFilter_ValidatesItsData()
         {
             Assert.Throws<ArgumentOutOfRangeException>(() => _ = new DeltaFilter<string>(DeltaOperation.CapMagnitude, -1, Source: "a"));

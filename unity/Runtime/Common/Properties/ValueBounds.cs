@@ -45,9 +45,12 @@ namespace BrunoCPF.Modifiable.Common.Properties
 
             HasMin = hasMin;
             HasMax = hasMax;
-            Min = hasMin ? min : default;
-            Max = hasMax ? max : default;
+            _min = hasMin ? min : default;
+            _max = hasMax ? max : default;
         }
+
+        private readonly TValue? _min;
+        private readonly TValue? _max;
 
         /// <summary>
         /// Creates bounds with an inclusive minimum and no maximum.
@@ -62,22 +65,42 @@ namespace BrunoCPF.Modifiable.Common.Properties
         /// <summary>
         /// Whether a minimum applies.
         /// </summary>
-        public bool HasMin { get; }
+        public bool HasMin { get; private init; }
 
         /// <summary>
         /// Whether a maximum applies.
         /// </summary>
-        public bool HasMax { get; }
+        public bool HasMax { get; private init; }
 
         /// <summary>
-        /// The inclusive minimum; meaningful only when <see cref="HasMin"/> is true.
+        /// The inclusive minimum; meaningful only when <see cref="HasMin"/> is true. Setting it with
+        /// <c>with { Min = … }</c> turns the minimum on (a null reference-type value turns it off).
         /// </summary>
-        public TValue? Min { get; }
+        /// <remarks><c>with</c> doesn't re-check that the minimum is at most the maximum.</remarks>
+        public TValue? Min
+        {
+            get => _min;
+            init
+            {
+                _min = value;
+                HasMin = value is not null;
+            }
+        }
 
         /// <summary>
-        /// The inclusive maximum; meaningful only when <see cref="HasMax"/> is true.
+        /// The inclusive maximum; meaningful only when <see cref="HasMax"/> is true. Setting it with
+        /// <c>with { Max = … }</c> turns the maximum on (a null reference-type value turns it off).
         /// </summary>
-        public TValue? Max { get; }
+        /// <remarks><c>with</c> doesn't re-check that the minimum is at most the maximum.</remarks>
+        public TValue? Max
+        {
+            get => _max;
+            init
+            {
+                _max = value;
+                HasMax = value is not null;
+            }
+        }
 
         public TValue Clamp(TValue value)
         {

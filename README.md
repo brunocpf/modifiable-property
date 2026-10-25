@@ -305,22 +305,26 @@ By default, `ModifiableProperty` provides arithmetic for `int`, `long`, `float`,
 If your type doesn’t support numeric operators, supply custom math:
 
 ```csharp
-public struct Mana { public int Value; }
+// Property values must be comparable, so bounds can clamp them.
+public readonly struct Mana : IComparable
+{
+    public Mana(int value) => Value = value;
+    public int Value { get; }
+    public int CompareTo(object? obj) => obj is Mana mana ? Value.CompareTo(mana.Value) : 1;
+}
 
 public class ManaMath : IValueMath<Mana>
 {
-    public Mana Add(Mana a, Mana b) => new() { Value = a.Value + b.Value };
-    public Mana Subtract(Mana a, Mana b) => new() { Value = a.Value - b.Value };
+    public Mana Add(Mana a, Mana b) => new(a.Value + b.Value);
+    public Mana Subtract(Mana a, Mana b) => new(a.Value - b.Value);
 }
 ```
 
 Use it like:
 
 ```csharp
-var mana = new ModifiableProperty<Mana, object>(
-    new Mana { Value = 10 },
-    valueMath: new ManaMath()
-);
+var mana = new ModifiableProperty<Mana, object>(new Mana(10), valueMath: new ManaMath());
+// with bounds: new ModifiableProperty<Mana, object>(new Mana(10), new ValueBounds<Mana>(new Mana(0), new Mana(99)), new ManaMath())
 ```
 
 This is particularly useful for enums with custom logic (e.g., elemental affinities).
@@ -362,7 +366,10 @@ two equal modifiers simply both apply.
 ### Stack groups
 
 Modifiers that share a `StackGroup` combine according to a `StackPolicy`: `Stack` (default),
-`HighestOnly` or `LowestOnly`.
+`HighestOnly` or `LowestOnly`. Highest/lowest compare raw operands, so every modifier in such a group
+must use the same operation (and custom name); evaluation throws otherwise. Use `HighestOnly` for
+bonuses (+30 beats +10, ×1.5 beats ×1.2) and `LowestOnly` for penalties (−30 beats −10, ×0.5 beats
+×0.8). Ties keep the earliest modifier.
 
 ```csharp
 Modifier<string>[] boosts =
@@ -430,12 +437,26 @@ DeltaResult<int, string> hit = DeltaPipeline.Apply(100, -500, new[] { endure }, 
 - `CustomName` is required for `Custom` and not allowed with any other operation.
 - An unregistered name, or a missing registry, throws `InvalidOperationException` when evaluated.
 
-### Rounding
+### Rounding, saturation and precision
 
-Values are combined in `double` and converted back after **every** step. `int` and `long` round
-toward zero by default (`7.5 → 7`, `-7.5 → -7`) and saturate at their limits. Pick another mode with
-`new IntValueMath(RoundingMode.Floor)` (also `Ceiling`, `Nearest`) and pass it as `math`. `long`
-values above 2^53 lose precision when scaled.
+- **Per step:** each operation's result is converted back to the value type before the next one, so
+  integral types round at every step. `int` and `long` round toward zero by default (`7.5 → 7`,
+  `-7.5 → -7`). Pick another mode with `new IntValueMath(RoundingMode.Floor)` (also `Ceiling`,
+  `Nearest`) and pass it as `math`.
+- **Saturation:** nothing wraps around or becomes infinite. Integers saturate at their limits
+  (including plain `AddDelta` on a property), floats and doubles saturate at `±MaxValue`, and a NaN
+  result throws. Custom operations must return finite results.
+- **Exact integer paths:** `Add` with a whole-number operand, `Override`, `AtLeast`, `AtMost`, ×1 and
+  the matching filters use the value type's own arithmetic, so `long` values keep full precision there.
+  Multiplying, fractional operands and custom operations go through `double`, where `long` magnitudes
+  above 2^53 lose precision.
+
+### `with` and validation
+
+`Modifier` and `DeltaFilter` support `with` on every member, and each value is validated as it's set.
+Rules that span members (a `Custom` operation needs a `CustomName` and vice versa; a magnitude cap
+can't be negative) are checked by the constructor and again when the entry is evaluated, because
+`with` skips the constructor.
 
 ### With `ModifiableProperty`
 
@@ -469,6 +490,18 @@ strength.PushModifier(new Modifier<string>(ModifierOperation.Custom, 999, Custom
 
 Adding a custom entry whose name isn't registered throws, and so does replacing `Operations` with a
 registry that's missing a name in use. Evaluation itself never hits an unknown name.
+
+### Failures, ordering and reentrancy
+
+- **Atomic changes:** every change computes the new effective value before committing. If a filter,
+  modifier or custom operation throws, the property is left unchanged and the exception reaches the
+  caller; nothing is swallowed by the reactive streams.
+- **Notification order for a delta:** `Base`, then `Effective`, then `ProcessedDeltas`, then
+  `AppliedDeltas`. `CurrentValue` is already up to date when `Base` notifies.
+- **Reentrancy:** a delta (or `SetBaseValue`) requested from inside a subscriber while a delta is being
+  applied is queued and applied once the current one has finished notifying, so `AppliedDeltas` always
+  reads as a sequential log you can replay. A queued `SetBaseValue` is computed when it's applied. If a
+  queued delta throws, the outermost `AddDelta` call throws and the rest of the queue is dropped.
 
 ---
 
@@ -628,6 +661,7 @@ ally.Hp.AddDelta(+20, new HealCtx(ally));
 ├── src/BrunoCPF.Modifiable/          # SDK library (Godot / .NET / NuGet) — compiles the
 │                                     #   source under unity/Runtime; no duplicated code
 ├── tests/BrunoCPF.Modifiable.Tests/  # engine-free NUnit suite (dotnet test)
+├── tests/BrunoCPF.Modifiable.SampleCheck/ # compiles unity/Samples~ at C# 9 against a UnityEngine stub
 ├── unity/                            # UPM package (consumed via ?path=unity)
 │   ├── package.json
 │   ├── Runtime/                      # the actual source — single source of truth

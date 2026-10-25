@@ -58,6 +58,29 @@ namespace BrunoCPF.Modifiable.Tests
         }
 
         [Test]
+        public void With_SetsAndEnablesASide()
+        {
+            ValueBounds<int> bounds = ValueBounds<int>.Unbounded with { Max = 100 };
+            ValueBounds<int> both = bounds with { Min = 3 };
+
+            Assert.IsFalse(bounds.HasMin);
+            Assert.IsTrue(bounds.HasMax);
+            Assert.AreEqual(-50, bounds.Clamp(-50));
+            Assert.AreEqual(100, bounds.Clamp(500));
+            Assert.AreEqual(3, both.Clamp(-50));
+            Assert.AreEqual(new ValueBounds<int>(3, 100), both);
+        }
+
+        [Test]
+        public void With_ANullReferenceBoundTurnsThatSideOff()
+        {
+            ValueBounds<string> bounds = new ValueBounds<string>("b", "y") with { Min = null };
+
+            Assert.IsFalse(bounds.HasMin);
+            Assert.AreEqual("a", bounds.Clamp("a"));
+        }
+
+        [Test]
         public void MinGreaterThanMax_Throws()
         {
             Assert.Throws<ArgumentException>(() => _ = new ValueBounds<int>(10, 1));

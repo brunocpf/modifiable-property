@@ -89,6 +89,12 @@ namespace BrunoCPF.Modifiable.Core
                 throw new ArgumentNullException(nameof(math));
             }
 
+            CustomOperationNames.RequireConsistent(filter.Operation == DeltaOperation.Custom, filter.CustomName);
+            if (filter.Operation == DeltaOperation.CapMagnitude && filter.Value < 0d)
+            {
+                throw new ArgumentException("A magnitude cap cannot be negative.", nameof(filter));
+            }
+
             double value = math.ToDouble(delta);
             bool applies = filter.AppliesTo switch
             {
@@ -102,12 +108,25 @@ namespace BrunoCPF.Modifiable.Core
                 return delta;
             }
 
+            // Exact paths: no round trip through double, so large longs survive and no-ops stay no-ops.
+            switch (filter.Operation)
+            {
+                case DeltaOperation.Add when ExactOperands.IsInteger(filter.Value):
+                    return math.Add(delta, math.FromDouble(filter.Value));
+                case DeltaOperation.Scale when filter.Value == 1d:
+                    return delta;
+                case DeltaOperation.CapMagnitude:
+                    return System.Math.Abs(value) <= filter.Value
+                        ? delta
+                        : math.FromDouble(System.Math.Sign(value) * filter.Value);
+                case DeltaOperation.Block:
+                    return math.FromDouble(0d);
+            }
+
             double result = filter.Operation switch
             {
                 DeltaOperation.Scale => value * filter.Value,
                 DeltaOperation.Add => value + filter.Value,
-                DeltaOperation.CapMagnitude => System.Math.Sign(value) * System.Math.Min(System.Math.Abs(value), filter.Value),
-                DeltaOperation.Block => 0d,
                 DeltaOperation.Custom => CustomOperations.ApplyDelta(operations, filter.CustomName!, value, filter.Value),
                 _ => throw new ArgumentOutOfRangeException(nameof(filter), filter.Operation, null),
             };

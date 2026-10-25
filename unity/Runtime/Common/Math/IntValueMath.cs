@@ -15,8 +15,11 @@ namespace BrunoCPF.Modifiable.Common.Math
         /// </summary>
         public RoundingMode Rounding { get; }
 
-        public int Add(int a, int b) => a + b;
-        public int Subtract(int a, int b) => a - b;
+        /// <summary>a + b, saturating at <see cref="int.MinValue"/> / <see cref="int.MaxValue"/>.</summary>
+        public int Add(int a, int b) => Rounder.SaturateToInt((long)a + b);
+
+        /// <summary>a − b, saturating at <see cref="int.MinValue"/> / <see cref="int.MaxValue"/>.</summary>
+        public int Subtract(int a, int b) => Rounder.SaturateToInt((long)a - b);
         public double ToDouble(int value) => value;
         public int FromDouble(double value) => (int)Rounder.Round(value, Rounding, int.MinValue, int.MaxValue);
     }

@@ -20,6 +20,11 @@ namespace BrunoCPF.Modifiable.Core
     /// allowed otherwise.
     /// </param>
     /// <param name="Source">Optional origin, reported in breakdowns.</param>
+    /// <remarks>
+    /// Every member supports <c>with</c>. Each value is validated on its own when set; the pairing of
+    /// <see cref="Operation"/> and <see cref="CustomName"/> is checked by the constructor and again
+    /// when the modifier is evaluated.
+    /// </remarks>
     public sealed record Modifier<TSource>(
         ModifierOperation Operation,
         double Value,
@@ -28,22 +33,37 @@ namespace BrunoCPF.Modifiable.Core
         string? CustomName = null,
         TSource? Source = default)
     {
+        private readonly ModifierOperation _operation = RecordValidation.Defined(Operation, nameof(Operation));
+        private readonly double _value = RecordValidation.Finite(Value, nameof(Value));
+        private readonly string? _stackGroup = RecordValidation.NullOrNonBlank(StackGroup, nameof(StackGroup));
+        private readonly string? _customName = CustomOperationNames.Validate(Operation == ModifierOperation.Custom, CustomName);
+
         /// <summary>How <see cref="Value"/> combines with the incoming value.</summary>
-        public ModifierOperation Operation { get; } = Enum.IsDefined(typeof(ModifierOperation), Operation)
-            ? Operation
-            : throw new ArgumentOutOfRangeException(nameof(Operation), Operation, null);
+        public ModifierOperation Operation
+        {
+            get => _operation;
+            init => _operation = RecordValidation.Defined(value, nameof(Operation));
+        }
 
         /// <summary>The operand.</summary>
-        public double Value { get; } = double.IsFinite(Value)
-            ? Value
-            : throw new ArgumentOutOfRangeException(nameof(Value), Value, "Modifier value must be finite.");
+        public double Value
+        {
+            get => _value;
+            init => _value = RecordValidation.Finite(value, nameof(Value));
+        }
 
         /// <summary>Optional group whose members are resolved by a <see cref="StackPolicy"/>.</summary>
-        public string? StackGroup { get; } = StackGroup is not null && StackGroup.Trim().Length == 0
-            ? throw new ArgumentException("Stack group cannot be blank; use null for no group.", nameof(StackGroup))
-            : StackGroup;
+        public string? StackGroup
+        {
+            get => _stackGroup;
+            init => _stackGroup = RecordValidation.NullOrNonBlank(value, nameof(StackGroup));
+        }
 
         /// <summary>The registered operation name for <see cref="ModifierOperation.Custom"/>; otherwise null.</summary>
-        public string? CustomName { get; } = CustomOperationNames.Validate(Operation == ModifierOperation.Custom, CustomName);
+        public string? CustomName
+        {
+            get => _customName;
+            init => _customName = RecordValidation.NullOrNonBlank(value, nameof(CustomName));
+        }
     }
 }

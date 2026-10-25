@@ -92,6 +92,20 @@ namespace BrunoCPF.Modifiable.Core
                     continue;
                 }
 
+                // Highest/lowest compares raw operands, which only means something within one operation.
+                Modifier<TSource> first = ordered[group.Value[0]]!;
+                foreach (int index in group.Value)
+                {
+                    Modifier<TSource> member = ordered[index]!;
+                    if (member.Operation != first.Operation
+                        || !string.Equals(member.CustomName, first.CustomName, StringComparison.Ordinal))
+                    {
+                        throw new InvalidOperationException(
+                            $"Stack group '{group.Key}' uses {policy}, so all its modifiers must share one operation; " +
+                            $"found {Describe(first)} and {Describe(member)}.");
+                    }
+                }
+
                 int kept = -1;
                 foreach (int index in group.Value)
                 {
@@ -113,6 +127,9 @@ namespace BrunoCPF.Modifiable.Core
 
             return suppressed;
         }
+
+        private static string Describe<TSource>(Modifier<TSource> modifier) =>
+            modifier.CustomName is { } name ? $"{modifier.Operation}('{name}')" : modifier.Operation.ToString();
 
         private static TValue Run<TValue, TSource>(
             TValue baseValue,

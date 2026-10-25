@@ -17,19 +17,36 @@ namespace BrunoCPF.Modifiable.Common.Properties
     /// <see cref="RemoveModifiers"/> / <see cref="RemoveFilters"/>; it doesn't have to be unique.
     /// </typeparam>
     /// <remarks>
+    /// <para>
     /// This is a reactive wrapper over the pure core in <see cref="BrunoCPF.Modifiable.Core"/>. It accepts
     /// both closure-free data entries (<see cref="Modifier{TSource}"/>, <see cref="DeltaFilter{TSource}"/>)
     /// and functions, in one priority order. Entries have no ids: remove one with the handle returned by
     /// <c>Push…</c>, or all of a source's entries with <c>Remove…(source)</c>.
+    /// </para>
+    /// <para>
+    /// Every change is atomic: the new effective value is computed before anything is committed, so if a
+    /// filter, modifier or custom operation throws, the property is left unchanged and the exception
+    /// reaches the caller.
+    /// </para>
+    /// <para>
+    /// Notification order for a delta: <see cref="Base"/>, then <see cref="Effective"/>, then
+    /// <see cref="ProcessedDeltas"/>, then <see cref="AppliedDeltas"/>. <see cref="CurrentValue"/> is
+    /// already up to date when <see cref="Base"/> notifies. Deltas (including <see cref="SetBaseValue"/>)
+    /// requested from inside a subscriber while a delta is being applied are queued and applied, in order,
+    /// once the current one has finished notifying, so <see cref="AppliedDeltas"/> always reads as a
+    /// sequential log.
+    /// </para>
     /// </remarks>
     public class ModifiableProperty<TValue, TContext, TSource>
         : Observable<TValue>, IReadOnlyModifiableProperty<TValue, TContext>, IDisposable where TValue : struct, IComparable
     {
         private readonly ReactiveProperty<TValue> _base;
+        private readonly ReactiveProperty<TValue> _effective;
         private readonly Subject<ValueDelta<TValue, TContext>> _processedDeltas = new();
         private readonly Subject<DeltaResult<TValue, TSource>> _appliedDeltas = new();
         private readonly ReactiveProperty<IReadOnlyList<ModifierEntry<TValue, TSource>>> _modifiers =
             new(Array.Empty<ModifierEntry<TValue, TSource>>());
+        private readonly Queue<Action> _pendingDeltas = new();
         private List<FilterEntry> _filters = new();
         private readonly ValueBounds<TValue> _bounds;
         private readonly IValueMath<TValue>? _valueMath;
@@ -37,12 +54,14 @@ namespace BrunoCPF.Modifiable.Common.Properties
         private readonly CompositeDisposable _disposables = new();
         private Func<string, StackPolicy>? _stacking;
         private CustomOperations? _operations;
+        private TValue _currentValue;
+        private bool _applyingDelta;
         private bool _disposed;
 
         /// <summary>
         /// Current effective value after modifiers are applied.
         /// </summary>
-        public TValue CurrentValue => Effective.CurrentValue;
+        public TValue CurrentValue => _currentValue;
 
         /// <summary>
         /// Stream of processed deltas after filters are applied.
@@ -51,7 +70,7 @@ namespace BrunoCPF.Modifiable.Common.Properties
 
         /// <summary>
         /// Stream of every applied delta's full outcome: requested, filtered and applied amounts, and the
-        /// filters that changed it with their sources. Emits after <see cref="Base"/> has updated.
+        /// filters that changed it with their sources. Emits last for each delta, in application order.
         /// </summary>
         public Observable<DeltaResult<TValue, TSource>> AppliedDeltas => _appliedDeltas;
 
@@ -66,7 +85,7 @@ namespace BrunoCPF.Modifiable.Common.Properties
         public ReadOnlyReactiveProperty<TValue> Effective { get; }
 
         /// <summary>
-        /// Observable list of installed modifiers in evaluation order. Emits whenever it changes.
+        /// Observable list of installed modifiers in evaluation order. Emits whenever the list changes.
         /// </summary>
         public Observable<IReadOnlyList<ModifierEntry<TValue, TSource>>> Modifiers => _modifiers;
 
@@ -74,14 +93,19 @@ namespace BrunoCPF.Modifiable.Common.Properties
         /// Policy per <see cref="Modifier{TSource}.StackGroup"/>; groups stack by default. Changing it
         /// re-evaluates <see cref="Effective"/>.
         /// </summary>
+        /// <exception cref="InvalidOperationException">
+        /// The new policy can't evaluate the installed modifiers (e.g. a non-stacking group mixes
+        /// operations); the old policy stays.
+        /// </exception>
         public Func<string, StackPolicy>? Stacking
         {
             get => _stacking;
             set
             {
                 ThrowIfDisposed();
+                TValue effective = Evaluate(_base.Value, _modifiers.Value, value, _operations, steps: null);
                 _stacking = value;
-                _modifiers.Value = _modifiers.Value.ToArray();
+                PublishEffective(effective);
             }
         }
 
@@ -90,7 +114,8 @@ namespace BrunoCPF.Modifiable.Common.Properties
         /// filters. Set it before adding custom entries; changing it re-evaluates <see cref="Effective"/>.
         /// </summary>
         /// <exception cref="InvalidOperationException">
-        /// The new registry is missing an operation that a current custom entry uses.
+        /// The new registry is missing an operation that a current custom entry uses, or one of its
+        /// operations fails on the current value; the old registry stays.
         /// </exception>
         public CustomOperations? Operations
         {
@@ -108,8 +133,9 @@ namespace BrunoCPF.Modifiable.Common.Properties
                     RequireCustomOperation(value, entry.Data?.CustomName, isModifier: false);
                 }
 
+                TValue effective = Evaluate(_base.Value, _modifiers.Value, _stacking, value, steps: null);
                 _operations = value;
-                _modifiers.Value = _modifiers.Value.ToArray();
+                PublishEffective(effective);
             }
         }
 
@@ -132,29 +158,24 @@ namespace BrunoCPF.Modifiable.Common.Properties
             _valueMath = valueMath ?? ValueMath.GetValueMath<TValue>();
             _scalableMath = _valueMath as IScalableValueMath<TValue>;
 
-            _base = new ReactiveProperty<TValue>(_bounds.Clamp(initialValue));
+            TValue clamped = _bounds.Clamp(initialValue);
+            _currentValue = clamped;
+            _base = new ReactiveProperty<TValue>(clamped);
+            _effective = new ReactiveProperty<TValue>(clamped);
 
             Base = _base.ToReadOnlyReactiveProperty().AddTo(_disposables);
-
-            Effective = _base
-                .CombineLatest(_modifiers, (baseValue, modifiers) => ApplyModifiers(baseValue, modifiers, steps: null))
-                .ToReadOnlyReactiveProperty()
-                .AddTo(_disposables);
+            Effective = _effective.ToReadOnlyReactiveProperty().AddTo(_disposables);
         }
 
         /// <summary>
         /// Creates a modifiable property with an optional inclusive <paramref name="min"/> and
-        /// <paramref name="max"/>; an omitted side is unbounded.
+        /// <paramref name="max"/>; an omitted side is unbounded. To also pass custom math, use the
+        /// <see cref="ValueBounds{TValue}"/> constructor.
         /// </summary>
-        public ModifiableProperty(
-            TValue initialValue,
-            TValue? min = null,
-            TValue? max = null,
-            IValueMath<TValue>? valueMath = null)
+        public ModifiableProperty(TValue initialValue, TValue? min = null, TValue? max = null)
             : this(
                 initialValue,
-                new ValueBounds<TValue>(min.HasValue, min.GetValueOrDefault(), max.HasValue, max.GetValueOrDefault()),
-                valueMath)
+                new ValueBounds<TValue>(min.HasValue, min.GetValueOrDefault(), max.HasValue, max.GetValueOrDefault()))
         { }
 
         /// <summary>
@@ -190,14 +211,20 @@ namespace BrunoCPF.Modifiable.Common.Properties
             return boundedValue;
         }
 
-        private TValue ApplyModifiers(
+        /// <summary>
+        /// Computes the effective value for a prospective state without changing anything; throws if a
+        /// modifier fails.
+        /// </summary>
+        private TValue Evaluate(
             TValue baseValue,
             IReadOnlyList<ModifierEntry<TValue, TSource>> modifiers,
+            Func<string, StackPolicy>? stacking,
+            CustomOperations? operations,
             List<ModifierStep<TValue, TSource>>? steps)
         {
             bool[] suppressed = ModifierStack.FindSuppressed(
                 modifiers.Select(static entry => entry.Data).ToArray(),
-                _stacking);
+                stacking);
 
             var modifiedValue = baseValue;
 
@@ -214,7 +241,7 @@ namespace BrunoCPF.Modifiable.Common.Properties
                 {
                     // Data modifiers are only accepted when scalable math (and, for custom ones, a
                     // registered operation) exists; see PushModifier and Operations.
-                    modifiedValue = ModifierMath.Apply(modifiedValue, entry.Data!, _scalableMath!, _operations);
+                    modifiedValue = ModifierMath.Apply(modifiedValue, entry.Data!, _scalableMath!, operations);
                 }
 
                 steps?.Add(new ModifierStep<TValue, TSource>(
@@ -225,12 +252,94 @@ namespace BrunoCPF.Modifiable.Common.Properties
         }
 
         /// <summary>
+        /// Commits a new effective value. <see cref="CurrentValue"/> changes first; the
+        /// <see cref="Effective"/> stream then publishes the latest value (a subscriber reacting to an
+        /// earlier emission may already have changed it again).
+        /// </summary>
+        private void PublishEffective(TValue effective)
+        {
+            _currentValue = effective;
+            _effective.Value = _currentValue;
+        }
+
+        /// <summary>
+        /// Commits a new modifier list together with the effective value already computed for it.
+        /// </summary>
+        private void CommitModifiers(IReadOnlyList<ModifierEntry<TValue, TSource>> modifiers, TValue effective)
+        {
+            _currentValue = effective;
+            _modifiers.Value = modifiers;
+            _effective.Value = _currentValue;
+        }
+
+        /// <summary>
         /// Injects a delta with context into the property.
         /// </summary>
+        /// <remarks>
+        /// Called from a subscriber while another delta is being applied, the delta is queued and applied
+        /// right after the current one finishes notifying. If a queued delta throws, the exception reaches
+        /// the outermost <c>AddDelta</c> caller and the rest of the queue is dropped.
+        /// </remarks>
         public void AddDelta(ValueDelta<TValue, TContext> delta)
         {
             ThrowIfDisposed();
+            RunDelta(() => ApplyDelta(delta));
+        }
 
+        /// <summary>
+        /// Injects a delta with context into the property.
+        /// </summary>
+        public void AddDelta(TValue delta, TContext? context) => AddDelta(new ValueDelta<TValue, TContext>(delta, context));
+
+        /// <summary>
+        /// Injects a delta without context into the property.
+        /// </summary>
+        public void AddDelta(TValue delta) => AddDelta(new ValueDelta<TValue, TContext>(delta, default));
+
+        /// <summary>
+        /// Directly set the base value by injecting the required delta. The delta still passes through
+        /// filters and bounds, so the resulting base can differ from <paramref name="newValue"/>.
+        /// </summary>
+        /// <remarks>
+        /// When queued (see <see cref="AddDelta(ValueDelta{TValue, TContext})"/>), the delta is computed
+        /// from the base at the time it's applied, not when it was requested.
+        /// </remarks>
+        public void SetBaseValue(TValue newValue)
+        {
+            ThrowIfDisposed();
+            RunDelta(() =>
+            {
+                TValue delta = _valueMath != null ? _valueMath.Subtract(newValue, _base.Value) : newValue;
+                ApplyDelta(new ValueDelta<TValue, TContext>(delta, default));
+            });
+        }
+
+        private void RunDelta(Action apply)
+        {
+            if (_applyingDelta)
+            {
+                _pendingDeltas.Enqueue(apply);
+                return;
+            }
+
+            _applyingDelta = true;
+            try
+            {
+                apply();
+                while (_pendingDeltas.Count > 0 && !_disposed)
+                {
+                    _pendingDeltas.Dequeue()();
+                }
+            }
+            finally
+            {
+                _applyingDelta = false;
+                _pendingDeltas.Clear();
+            }
+        }
+
+        private void ApplyDelta(ValueDelta<TValue, TContext> delta)
+        {
             TValue before = _base.Value;
             var fired = new List<DeltaStep<TValue, TSource>>();
             var filtered = delta;
@@ -252,7 +361,13 @@ namespace BrunoCPF.Modifiable.Common.Properties
             }
 
             TValue after = ApplyBounds(before, filtered.Delta);
+
+            // Evaluate before committing so a failing modifier leaves the property unchanged.
+            TValue effective = Evaluate(after, _modifiers.Value, _stacking, _operations, steps: null);
+
+            _currentValue = effective;
             _base.Value = after;
+            _effective.Value = _currentValue;
 
             _processedDeltas.OnNext(filtered);
             _appliedDeltas.OnNext(new DeltaResult<TValue, TSource>(
@@ -265,36 +380,6 @@ namespace BrunoCPF.Modifiable.Common.Properties
         }
 
         /// <summary>
-        /// Injects a delta with context into the property.
-        /// </summary>
-        public void AddDelta(TValue delta, TContext? context) => AddDelta(new ValueDelta<TValue, TContext>(delta, context));
-
-        /// <summary>
-        /// Injects a delta without context into the property.
-        /// </summary>
-        public void AddDelta(TValue delta) => AddDelta(new ValueDelta<TValue, TContext>(delta, default));
-
-        /// <summary>
-        /// Directly set the base value by injecting the required delta.
-        /// </summary>
-        public void SetBaseValue(TValue newValue)
-        {
-            var current = Base.CurrentValue;
-
-            TValue delta;
-            if (_valueMath != null)
-            {
-                delta = _valueMath.Subtract(newValue, current);
-            }
-            else
-            {
-                delta = newValue;
-            }
-
-            AddDelta(delta);
-        }
-
-        /// <summary>
         /// Returns a step-by-step account of how the installed modifiers produce <see cref="CurrentValue"/>
         /// from the current base value. Function entries appear with a null
         /// <see cref="ModifierStep{TValue, TSource}.Data"/>.
@@ -304,7 +389,7 @@ namespace BrunoCPF.Modifiable.Common.Properties
             ThrowIfDisposed();
             var steps = new List<ModifierStep<TValue, TSource>>();
             TValue baseValue = _base.Value;
-            TValue result = ApplyModifiers(baseValue, _modifiers.Value, steps);
+            TValue result = Evaluate(baseValue, _modifiers.Value, _stacking, _operations, steps);
             return new ModifierBreakdown<TValue, TSource>(baseValue, result, steps);
         }
 
@@ -313,8 +398,9 @@ namespace BrunoCPF.Modifiable.Common.Properties
         /// handle to remove exactly this entry.
         /// </summary>
         /// <exception cref="InvalidOperationException">
-        /// <typeparamref name="TValue"/> has no <see cref="IScalableValueMath{TValue}"/>, or a custom
-        /// modifier's operation isn't registered in <see cref="Operations"/>.
+        /// <typeparamref name="TValue"/> has no <see cref="IScalableValueMath{TValue}"/>, a custom
+        /// modifier's operation isn't registered in <see cref="Operations"/>, or the modifier can't be
+        /// evaluated (e.g. it mixes operations in a non-stacking group). Nothing is installed.
         /// </exception>
         public IDisposable PushModifier(Modifier<TSource> modifier)
         {
@@ -330,7 +416,8 @@ namespace BrunoCPF.Modifiable.Common.Properties
 
         /// <summary>
         /// Installs a function modifier after every modifier of equal or lower priority. Dispose the
-        /// returned handle to remove exactly this entry.
+        /// returned handle to remove exactly this entry. If the function throws on the current value,
+        /// nothing is installed and the exception propagates.
         /// </summary>
         public IDisposable PushModifier(Func<TValue, TValue> modify, int priority = 0, TSource? source = default)
         {
@@ -343,10 +430,11 @@ namespace BrunoCPF.Modifiable.Common.Properties
         }
 
         /// <summary>
-        /// Removes every modifier whose source equals <paramref name="source"/>.
+        /// Removes every modifier whose source equals <paramref name="source"/> (null matches entries
+        /// without a source).
         /// </summary>
         /// <returns>The number of modifiers removed.</returns>
-        public int RemoveModifiers(TSource source)
+        public int RemoveModifiers(TSource? source)
         {
             // No-op once disposed: removal is cleanup that routinely runs during teardown.
             if (_disposed)
@@ -354,11 +442,11 @@ namespace BrunoCPF.Modifiable.Common.Properties
                 return 0;
             }
 
-            var kept = _modifiers.Value.Where(entry => !EqualityComparer<TSource>.Default.Equals(entry.Source!, source)).ToArray();
+            var kept = _modifiers.Value.Where(entry => !EqualityComparer<TSource?>.Default.Equals(entry.Source, source)).ToArray();
             int removed = _modifiers.Value.Count - kept.Length;
             if (removed > 0)
             {
-                _modifiers.Value = kept;
+                CommitModifiers(kept, Evaluate(_base.Value, kept, _stacking, _operations, steps: null));
             }
 
             return removed;
@@ -374,7 +462,7 @@ namespace BrunoCPF.Modifiable.Common.Properties
                 return;
             }
 
-            _modifiers.Value = Array.Empty<ModifierEntry<TValue, TSource>>();
+            CommitModifiers(Array.Empty<ModifierEntry<TValue, TSource>>(), _base.Value);
         }
 
         /// <summary>
@@ -415,10 +503,11 @@ namespace BrunoCPF.Modifiable.Common.Properties
         }
 
         /// <summary>
-        /// Removes every filter whose source equals <paramref name="source"/>.
+        /// Removes every filter whose source equals <paramref name="source"/> (null matches entries
+        /// without a source).
         /// </summary>
         /// <returns>The number of filters removed.</returns>
-        public int RemoveFilters(TSource source)
+        public int RemoveFilters(TSource? source)
         {
             // No-op once disposed; see RemoveModifiers.
             if (_disposed)
@@ -427,7 +516,7 @@ namespace BrunoCPF.Modifiable.Common.Properties
             }
 
             int before = _filters.Count;
-            _filters = _filters.Where(entry => !EqualityComparer<TSource>.Default.Equals(entry.Source!, source)).ToList();
+            _filters = _filters.Where(entry => !EqualityComparer<TSource?>.Default.Equals(entry.Source, source)).ToList();
             return before - _filters.Count;
         }
 
@@ -456,17 +545,19 @@ namespace BrunoCPF.Modifiable.Common.Properties
             }
 
             _disposed = true;
+            _pendingDeltas.Clear();
             _disposables.Dispose();
             _processedDeltas.Dispose();
             _appliedDeltas.Dispose();
             _base.Dispose();
+            _effective.Dispose();
             _modifiers.Dispose();
         }
 
         /// <summary>
         /// Subscribes observers to the effective value stream.
         /// </summary>
-        protected override IDisposable SubscribeCore(Observer<TValue> observer) => Effective.Subscribe(
+        protected sealed override IDisposable SubscribeCore(Observer<TValue> observer) => Effective.Subscribe(
             observer.OnNext,
             observer.OnErrorResume,
             observer.OnCompleted
@@ -491,7 +582,7 @@ namespace BrunoCPF.Modifiable.Common.Properties
             ThrowIfDisposed();
             List<ModifierEntry<TValue, TSource>> modifiers = _modifiers.Value.ToList();
             InsertByPriority(modifiers, entry, static m => m.Priority);
-            _modifiers.Value = modifiers;
+            CommitModifiers(modifiers, Evaluate(_base.Value, modifiers, _stacking, _operations, steps: null));
             return Disposable.Create(() => Uninstall(entry));
         }
 
@@ -506,7 +597,7 @@ namespace BrunoCPF.Modifiable.Common.Properties
             var kept = _modifiers.Value.Where(existing => !ReferenceEquals(existing, entry)).ToArray();
             if (kept.Length != _modifiers.Value.Count)
             {
-                _modifiers.Value = kept;
+                CommitModifiers(kept, Evaluate(_base.Value, kept, _stacking, _operations, steps: null));
             }
         }
 
@@ -630,10 +721,11 @@ namespace BrunoCPF.Modifiable.Common.Properties
 
         /// <summary>
         /// Creates a modifiable property with an optional inclusive <paramref name="min"/> and
-        /// <paramref name="max"/>; an omitted side is unbounded.
+        /// <paramref name="max"/>; an omitted side is unbounded. To also pass custom math, use the
+        /// <see cref="ValueBounds{TValue}"/> constructor.
         /// </summary>
-        public ModifiableProperty(TValue initialValue, TValue? min = null, TValue? max = null, IValueMath<TValue>? valueMath = null)
-            : base(initialValue, min, max, valueMath)
+        public ModifiableProperty(TValue initialValue, TValue? min = null, TValue? max = null)
+            : base(initialValue, min, max)
         { }
     }
 }

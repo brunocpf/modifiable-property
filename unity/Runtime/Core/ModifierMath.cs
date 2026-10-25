@@ -73,14 +73,28 @@ namespace BrunoCPF.Modifiable.Core
                 throw new ArgumentNullException(nameof(math));
             }
 
+            CustomOperationNames.RequireConsistent(operation == ModifierOperation.Custom, customName);
+
+            // Exact paths: no round trip through double, so large longs survive and no-ops stay no-ops.
+            switch (operation)
+            {
+                case ModifierOperation.Add when ExactOperands.IsInteger(operand):
+                    return math.Add(value, math.FromDouble(operand));
+                case ModifierOperation.Multiply when operand == 1d:
+                    return value;
+                case ModifierOperation.Override:
+                    return math.FromDouble(operand);
+                case ModifierOperation.AtLeast:
+                    return math.ToDouble(value) >= operand ? value : math.FromDouble(operand);
+                case ModifierOperation.AtMost:
+                    return math.ToDouble(value) <= operand ? value : math.FromDouble(operand);
+            }
+
             double current = math.ToDouble(value);
             double result = operation switch
             {
                 ModifierOperation.Add => current + operand,
                 ModifierOperation.Multiply => current * operand,
-                ModifierOperation.Override => operand,
-                ModifierOperation.AtLeast => System.Math.Max(current, operand),
-                ModifierOperation.AtMost => System.Math.Min(current, operand),
                 ModifierOperation.Custom => CustomOperations.ApplyModifier(operations, customName!, current, operand),
                 _ => throw new ArgumentOutOfRangeException(nameof(operation), operation, null),
             };

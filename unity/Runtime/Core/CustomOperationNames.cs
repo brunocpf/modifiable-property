@@ -21,5 +21,22 @@ namespace BrunoCPF.Modifiable.Core
 
             return customName;
         }
+
+        /// <summary>
+        /// Re-checks the Operation/CustomName pairing at evaluation time, because <c>with</c> expressions
+        /// can change either one without running the constructor.
+        /// </summary>
+        public static void RequireConsistent(bool isCustom, string? customName)
+        {
+            if (isCustom && string.IsNullOrWhiteSpace(customName))
+            {
+                throw new InvalidOperationException("A Custom operation needs a non-blank CustomName.");
+            }
+
+            if (!isCustom && customName is not null)
+            {
+                throw new InvalidOperationException("CustomName is only allowed with a Custom operation.");
+            }
+        }
     }
 }

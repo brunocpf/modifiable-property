@@ -19,6 +19,12 @@ namespace BrunoCPF.Modifiable.Core
     /// allowed otherwise.
     /// </param>
     /// <param name="Source">Optional origin, reported when the filter fires.</param>
+    /// <remarks>
+    /// Every member supports <c>with</c>. Each value is validated on its own when set; rules that span
+    /// members (a <see cref="DeltaOperation.CapMagnitude"/> operand can't be negative, the pairing of
+    /// <see cref="Operation"/> and <see cref="CustomName"/>) are checked by the constructor and again
+    /// when the filter is applied.
+    /// </remarks>
     public sealed record DeltaFilter<TSource>(
         DeltaOperation Operation,
         double Value = 0d,
@@ -27,24 +33,39 @@ namespace BrunoCPF.Modifiable.Core
         string? CustomName = null,
         TSource? Source = default)
     {
+        private readonly DeltaOperation _operation = RecordValidation.Defined(Operation, nameof(Operation));
+        private readonly double _value = Operation == DeltaOperation.CapMagnitude && Value < 0d
+            ? throw new ArgumentOutOfRangeException(nameof(Value), Value, "A magnitude cap cannot be negative.")
+            : RecordValidation.Finite(Value, nameof(Value));
+        private readonly DeltaDirection _appliesTo = RecordValidation.Defined(AppliesTo, nameof(AppliesTo));
+        private readonly string? _customName = CustomOperationNames.Validate(Operation == DeltaOperation.Custom, CustomName);
+
         /// <summary>How the delta is transformed.</summary>
-        public DeltaOperation Operation { get; } = Enum.IsDefined(typeof(DeltaOperation), Operation)
-            ? Operation
-            : throw new ArgumentOutOfRangeException(nameof(Operation), Operation, null);
+        public DeltaOperation Operation
+        {
+            get => _operation;
+            init => _operation = RecordValidation.Defined(value, nameof(Operation));
+        }
 
         /// <summary>The operand; ignored by <see cref="DeltaOperation.Block"/>.</summary>
-        public double Value { get; } = !double.IsFinite(Value)
-            ? throw new ArgumentOutOfRangeException(nameof(Value), Value, "Delta filter value must be finite.")
-            : Operation == DeltaOperation.CapMagnitude && Value < 0d
-                ? throw new ArgumentOutOfRangeException(nameof(Value), Value, "A magnitude cap cannot be negative.")
-                : Value;
+        public double Value
+        {
+            get => _value;
+            init => _value = RecordValidation.Finite(value, nameof(Value));
+        }
 
         /// <summary>Which deltas the filter applies to.</summary>
-        public DeltaDirection AppliesTo { get; } = Enum.IsDefined(typeof(DeltaDirection), AppliesTo)
-            ? AppliesTo
-            : throw new ArgumentOutOfRangeException(nameof(AppliesTo), AppliesTo, null);
+        public DeltaDirection AppliesTo
+        {
+            get => _appliesTo;
+            init => _appliesTo = RecordValidation.Defined(value, nameof(AppliesTo));
+        }
 
         /// <summary>The registered operation name for <see cref="DeltaOperation.Custom"/>; otherwise null.</summary>
-        public string? CustomName { get; } = CustomOperationNames.Validate(Operation == DeltaOperation.Custom, CustomName);
+        public string? CustomName
+        {
+            get => _customName;
+            init => _customName = RecordValidation.NullOrNonBlank(value, nameof(CustomName));
+        }
     }
 }
