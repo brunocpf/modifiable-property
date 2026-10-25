@@ -20,5 +20,10 @@ jobs:
             9.0.x
             10.0.x
 
+      # Enforces .editorconfig whitespace rules (LF, final newline, indentation) on the
+      # library and test sources.
+      - name: Check formatting
+        run: dotnet format whitespace BrunoCPF.Modifiable.slnx --verify-no-changes
+
       - name: Test
         run: dotnet test BrunoCPF.Modifiable.slnx -c Release

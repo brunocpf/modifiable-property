@@ -615,7 +615,11 @@ No engine required — the tests validate the exact code both Unity and Godot co
 ```bash
 dotnet build BrunoCPF.Modifiable.slnx -c Release   # library + tests
 dotnet test  BrunoCPF.Modifiable.slnx -c Release   # engine-free NUnit suite
+dotnet format whitespace BrunoCPF.Modifiable.slnx  # fix whitespace; CI runs it with --verify-no-changes
 ```
+
+Text files use LF endings and UTF-8 without a BOM (`.editorconfig`); `.gitattributes` normalizes
+line endings on commit.
 
 ---
 

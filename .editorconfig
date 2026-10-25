@@ -6,6 +6,7 @@ root = true
 # All files
 [*]
 charset = utf-8
+end_of_line = lf
 indent_style = space
 indent_size = 4
 insert_final_newline = true
@@ -22,11 +23,14 @@ indent_size = 2
 # JSON Files
 [*.{json,json5,webmanifest}]
 indent_size = 2
+# Unity metadata: Unity writes trailing spaces (e.g. "userData: ") and no final newline
+[*.meta]
+trim_trailing_whitespace = false
+insert_final_newline = false
 # Code files
 [*.{cs,csx,vb,vbx}]
 indent_size = 4
 insert_final_newline = true
-charset = utf-8-bom
 ##########################################
 # Default .NET Code Style Severities
 # https://docs.microsoft.com/dotnet/fundamentals/code-analysis/configuration-options#scope
@@ -393,7 +397,6 @@ dotnet_naming_style.pascalcase.word_separator =
 dotnet_naming_style.pascalcase.capitalization = pascal_case
 
 tab_width = 4
-end_of_line = crlf
 dotnet_style_allow_multiple_blank_lines_experimental = false:warning
 dotnet_style_allow_statement_immediately_after_block_experimental = true:silent
 
