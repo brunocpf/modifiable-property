@@ -29,7 +29,7 @@
   <!-- NuGet package metadata (for `dotnet pack` / Godot consumption). -->
   <PropertyGroup>
     <PackageId>BrunoCPF.Modifiable</PackageId>
-    <Version>0.1.0</Version>
+    <Version>0.4.0</Version>
     <Authors>Bruno Fernandes</Authors>
     <Description>Reactive, bounded, and modifiable properties for RPG-style stat systems.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
