@@ -1,0 +1,13 @@
+# Store every text file with LF endings, whatever the editor or OS writes.
+# Matches end_of_line = lf in .editorconfig.
+* text=auto eol=lf
+
+# Binary assets, should any be added (Unity package art, sample scenes, docs).
+*.png binary
+*.jpg binary
+*.gif binary
+*.psd binary
+*.ttf binary
+*.otf binary
+*.dll binary
+*.nupkg binary

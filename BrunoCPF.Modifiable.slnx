@@ -3,6 +3,7 @@
     <Project Path="src/BrunoCPF.Modifiable/BrunoCPF.Modifiable.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/BrunoCPF.Modifiable.SampleCheck/BrunoCPF.Modifiable.SampleCheck.csproj" />
     <Project Path="tests/BrunoCPF.Modifiable.Tests/BrunoCPF.Modifiable.Tests.csproj" />
   </Folder>
 </Solution>

@@ -140,10 +140,7 @@ hp.AddDelta(-30); // → 70
 hp.AddDelta(+20); // → 90
 
 // Equipment (modifier)
-var sword = hp.PushModifier(
-    id: "sword",
-    modifyFunc: v => v + 10
-);
+var sword = hp.PushModifier(v => v + 10, source: "sword");
 
 Debug.Log(hp.CurrentValue); // → 100
 
@@ -155,8 +152,12 @@ sword.Dispose(); // remove equipment
 # API Overview
 
 ```csharp
-public sealed class ModifiableProperty<TValue, TContext>
+public class ModifiableProperty<TValue, TContext, TSource>   // typed sources
+public sealed class ModifiableProperty<TValue, TContext>     // sources are object
 ```
+
+`TSource` is what an effect came from (a status, item, skill, …). It's optional, doesn't have to be
+unique, and is what `RemoveModifiers(source)` / `RemoveFilters(source)` match on (by `Equals`).
 
 ### ✔ Add deltas
 
@@ -165,8 +166,9 @@ public sealed class ModifiableProperty<TValue, TContext>
 
 ### ✔ Add / remove temporary effects
 
-`PushModifier()`
-`PushFilter()`
+`PushModifier(...)` / `PushFilter(...)` return an `IDisposable` handle that removes exactly that entry.
+`RemoveModifiers(source)` / `RemoveFilters(source)` remove every entry from a source.
+`ClearModifiers()` / `ClearFilters()` remove everything.
 
 ### ✔ Set base value
 
@@ -202,28 +204,22 @@ Filters modify _deltas_ before they affect the base value.
 ### EXP Boost
 
 ```csharp
-exp.PushFilter("boost", d => d with { Delta = (int)(d.Delta * 1.5f) });
+exp.PushFilter(d => d with { Delta = (int)(d.Delta * 1.5f) }, source: "boost");
 ```
 
 ### Block Healing
 
 ```csharp
-hp.PushFilter(
-    "no-healing",
-    d => d.Delta > 0 ? d with { Delta = 0 } : d
-);
+hp.PushFilter(d => d.Delta > 0 ? d with { Delta = 0 } : d, source: "no-healing");
 ```
 
 ### Minimum Damage Rule (“1 damage minimum”)
 
 ```csharp
-hp.PushFilter(
-    "min-dmg",
-    d => d.Delta < 0 && d.Delta > -1 ? new(-1, d.Context) : d
-);
+hp.PushFilter(d => d.Delta < 0 && d.Delta > -1 ? new(-1, d.Context) : d, source: "min-dmg");
 ```
 
-Filters run in **priority order** (the third argument), lowest first. Filters with equal priority run in the order they were added.
+Filters run in **priority order** (the `priority` argument), lowest first. Filters with equal priority run in the order they were added.
 
 ---
 
@@ -234,22 +230,22 @@ Modifiers affect the **final value** after the base is computed.
 ### Equipment
 
 ```csharp
-atk.PushModifier("sword", v => v + 20);
+atk.PushModifier(v => v + 20, source: "sword");
 ```
 
 ### Buff
 
 ```csharp
-atk.PushModifier("atk-up", v => (int)(v * 1.2f));
+atk.PushModifier(v => (int)(v * 1.2f), source: "atk-up");
 ```
 
 ### Debuff
 
 ```csharp
-atk.PushModifier("atk-down", v => (int)(v * 0.5f));
+atk.PushModifier(v => (int)(v * 0.5f), source: "atk-down");
 ```
 
-Modifiers also stack in **priority order** (third argument), lowest first. Modifiers with equal priority apply in the order they were added, so non-commutative modifiers (e.g. add vs. multiply) resolve deterministically.
+Modifiers also stack in **priority order** (the `priority` argument), lowest first. Modifiers with equal priority apply in the order they were added, so non-commutative modifiers (e.g. add vs. multiply) resolve deterministically.
 
 In most cases, you want flat bonuses to have a lower priority than multipliers.
 
@@ -266,6 +262,11 @@ var hp = new ModifiableProperty<int, object>(50, min: 0, max: 100);
 hp.AddDelta(-200); // → 0
 hp.AddDelta(+999); // → 100
 ```
+
+An omitted side is unbounded: `new ModifiableProperty<int, object>(10, min: 1)` has no maximum, and
+`new ModifiableProperty<int, object>(10)` is not clamped at all. With an explicit `ValueBounds`, use
+`new ValueBounds<int>(0, 100)`, `ValueBounds<int>.AtLeast(1)`, `ValueBounds<int>.AtMost(99)` or
+`ValueBounds<int>.Unbounded`.
 
 Use bounds to enforce static gameplay rules (e.g., HP can’t ever go below 0). For dynamic caps (e.g., HP ≤ MaxHP), use filters.
 
@@ -284,7 +285,7 @@ hp.AddDelta(-30, new DamageContext(attacker));
 Filters and subscribers receive structured metadata and adjust their behavior accordingly.
 
 ```csharp
-hp.PushFilter("shield", d =>
+hp.PushFilter(d =>
 {
     if (d.Context is DamageContext dc && dc.Source.HasStatus("armor_break"))
     {
@@ -292,7 +293,7 @@ hp.PushFilter("shield", d =>
     }
 
     return d.Delta < 0 ? d with { Delta = d.Delta + 10 } : d;
-});
+}, source: "shield");
 ```
 
 ---
@@ -304,27 +305,203 @@ By default, `ModifiableProperty` provides arithmetic for `int`, `long`, `float`,
 If your type doesn’t support numeric operators, supply custom math:
 
 ```csharp
-public struct Mana { public int Value; }
+// Property values must be comparable, so bounds can clamp them.
+public readonly struct Mana : IComparable
+{
+    public Mana(int value) => Value = value;
+    public int Value { get; }
+    public int CompareTo(object? obj) => obj is Mana mana ? Value.CompareTo(mana.Value) : 1;
+}
 
 public class ManaMath : IValueMath<Mana>
 {
-    public Mana Add(Mana a, Mana b) => new() { Value = a.Value + b.Value };
-    public Mana Subtract(Mana a, Mana b) => new() { Value = a.Value - b.Value };
+    public Mana Add(Mana a, Mana b) => new(a.Value + b.Value);
+    public Mana Subtract(Mana a, Mana b) => new(a.Value - b.Value);
 }
 ```
 
 Use it like:
 
 ```csharp
-var mana = new ModifiableProperty<Mana, object>(
-    new Mana { Value = 10 },
-    valueMath: new ManaMath()
-);
+var mana = new ModifiableProperty<Mana, object>(new Mana(10), valueMath: new ManaMath());
+// with bounds: new ModifiableProperty<Mana, object>(new Mana(10), new ValueBounds<Mana>(new Mana(0), new Mana(99)), new ManaMath())
 ```
 
 This is particularly useful for enums with custom logic (e.g., elemental affinities).
 
 If you don't provide custom math and use a non-numeric type, you might get unexpected behavior.
+
+To use [data modifiers and filters](#pure-core-data-modifiers--filters) with a custom type, implement
+`IScalableValueMath<T>` instead. It adds `ToDouble` / `FromDouble`, so scaling, overrides and caps can
+be computed and converted back (rounding and saturating as you choose).
+
+---
+
+# Pure Core (Data Modifiers & Filters)
+
+`BrunoCPF.Modifiable.Core` is a closure-free, non-reactive core. Modifiers and filters are plain
+records instead of lambdas, so you can compare, copy, save and describe them, and the evaluators
+report what each one did. It's built for simulations, saves, replays and AI lookahead, where state
+has to be plain data. `ModifiableProperty` is built on top of it.
+
+### Data modifiers
+
+```csharp
+using BrunoCPF.Modifiable.Core;
+
+Modifier<string>[] modifiers =
+{
+    new Modifier<string>(ModifierOperation.Add, 10, Source: "sword"),
+    new Modifier<string>(ModifierOperation.Multiply, 1.2, Priority: 1, Source: "boost"),
+};
+
+int strength = ModifierStack.Evaluate(40, modifiers); // (40 + 10) × 1.2 = 60
+```
+
+Operations: `Add`, `Multiply`, `Override`, `AtLeast`, `AtMost`. Modifiers run in ascending
+`Priority`; equal priorities keep the order you pass them in. Modifiers have no identity: `Source`
+(any type you like — a string, an enum, your own record) is optional, used only for attribution, and
+two equal modifiers simply both apply.
+
+### Stack groups
+
+Modifiers that share a `StackGroup` combine according to a `StackPolicy`: `Stack` (default),
+`HighestOnly` or `LowestOnly`. Highest/lowest compare raw operands, so every modifier in such a group
+must use the same operation (and custom name); evaluation throws otherwise. Use `HighestOnly` for
+bonuses (+30 beats +10, ×1.5 beats ×1.2) and `LowestOnly` for penalties (−30 beats −10, ×0.5 beats
+×0.8). Ties keep the earliest modifier.
+
+```csharp
+Modifier<string>[] boosts =
+{
+    new Modifier<string>(ModifierOperation.Multiply, 1.25, StackGroup: "boost.fire", Source: "ring"),
+    new Modifier<string>(ModifierOperation.Multiply, 1.5, StackGroup: "boost.fire", Source: "skill"),
+};
+
+int damage = ModifierStack.Evaluate(100, boosts, stacking: _ => StackPolicy.HighestOnly); // 150
+```
+
+### Breakdowns
+
+`Explain` returns every step, including modifiers suppressed by their group, for tooltips and
+debugging:
+
+```csharp
+ModifierBreakdown<int, string> breakdown = ModifierStack.Explain(40, modifiers);
+// Base 40 → sword 40→50 → boost 50→60 = 60   (each step carries its Source and Data)
+```
+
+### Data filters
+
+```csharp
+DeltaFilter<string>[] filters =
+{
+    new DeltaFilter<string>(DeltaOperation.Scale, 0.5, DeltaDirection.Decrease, Source: "guard"),
+    new DeltaFilter<string>(DeltaOperation.CapMagnitude, 30, Priority: 1, Source: "damage-cap"),
+};
+
+DeltaResult<int, string> hit = DeltaPipeline.Apply(current: 40, delta: -100, filters, new ValueBounds<int>(0, 100));
+// hit.Filtered == -30, hit.After == 10, hit.Applied == -30
+// hit.FiredFilters: guard (-100 → -50), damage-cap (-50 → -30)
+```
+
+Operations: `Scale`, `Add`, `CapMagnitude`, `Block`. `DeltaDirection` limits a filter to increases,
+decreases or both. `FiredFilters` lists each filter that actually changed the delta (its `Source`,
+`Data`, and the delta before and after), which is what you need to show "Guard!" or log a trigger.
+
+### Custom operations
+
+When the built-in operations aren't enough (soft caps, curves, lookup tables), register a named
+operation once and refer to it by name. The modifier or filter stays plain data that you can save,
+compare and explain, and the breakdown shows the name.
+
+```csharp
+var operations = new CustomOperations()
+    // above the threshold, only half of the excess counts
+    .AddModifierOperation("soft-cap", (value, threshold) =>
+        value <= threshold ? value : threshold + (value - threshold) / 2)
+    // never drop more than the operand in one hit
+    .AddDeltaOperation("endure", (delta, floor) => Math.Max(delta, floor));
+
+var cap = new Modifier<string>(ModifierOperation.Custom, 999, CustomName: "soft-cap", Source: "str-cap");
+int strength = ModifierStack.Evaluate(1200, new[] { cap }, operations: operations); // 1099
+
+var endure = new DeltaFilter<string>(DeltaOperation.Custom, -99, CustomName: "endure", Source: "endure");
+DeltaResult<int, string> hit = DeltaPipeline.Apply(100, -500, new[] { endure }, operations: operations); // After == 1
+```
+
+- Operations take `(value or delta, operand)` as `double` and return a `double`. The result is
+  converted back like the built-in operations (integral types round per step) and must be finite.
+- Names are case-sensitive and can't be registered twice or removed, so a saved name always means
+  the same operation. Modifier and delta operations have separate namespaces.
+- `CustomName` is required for `Custom` and not allowed with any other operation.
+- An unregistered name, or a missing registry, throws `InvalidOperationException` when evaluated.
+
+### Rounding, saturation and precision
+
+- **Per step:** each operation's result is converted back to the value type before the next one, so
+  integral types round at every step. `int` and `long` round toward zero by default (`7.5 → 7`,
+  `-7.5 → -7`). Pick another mode with `new IntValueMath(RoundingMode.Floor)` (also `Ceiling`,
+  `Nearest`) and pass it as `math`.
+- **Saturation:** nothing wraps around or becomes infinite. Integers saturate at their limits
+  (including plain `AddDelta` on a property), floats and doubles saturate at `±MaxValue`, and a NaN
+  result throws. Custom operations must return finite results.
+- **Exact integer paths:** `Add` with a whole-number operand, `Override`, `AtLeast`, `AtMost`, ×1 and
+  the matching filters use the value type's own arithmetic, so `long` values keep full precision there.
+  Multiplying, fractional operands and custom operations go through `double`, where `long` magnitudes
+  above 2^53 lose precision.
+
+### `with` and validation
+
+`Modifier` and `DeltaFilter` support `with` on every member, and each value is validated as it's set.
+Rules that span members (a `Custom` operation needs a `CustomName` and vice versa; a magnitude cap
+can't be negative) are checked by the constructor and again when the entry is evaluated, because
+`with` skips the constructor.
+
+### With `ModifiableProperty`
+
+`ModifiableProperty` accepts data entries next to function-based ones, in one priority order. Use the
+three-parameter form for typed sources.
+
+```csharp
+using var attack = new ModifiableProperty<int, object, string>(100, new ValueBounds<int>(0, 9999));
+
+attack.PushModifier(new Modifier<string>(ModifierOperation.Multiply, 1.25, StackGroup: "boost", Source: "ring"));
+attack.PushModifier(new Modifier<string>(ModifierOperation.Multiply, 1.5, StackGroup: "boost", Source: "skill"));
+attack.Stacking = _ => StackPolicy.HighestOnly;  // 150
+
+using var guard = attack.PushFilter(new DeltaFilter<string>(DeltaOperation.Scale, 0.5, DeltaDirection.Decrease, Source: "guard"));
+attack.AppliedDeltas.Subscribe(result => Log(result.FiredFilters.Select(step => step.Source)));
+
+ModifierBreakdown<int, string> breakdown = attack.Explain();
+attack.RemoveModifiers("skill");                 // back to 125
+```
+
+`AppliedDeltas` emits a `DeltaResult` for every change, reporting function-based filters too. Data
+entries need an `IScalableValueMath<T>`; the built-in `int`, `long`, `float` and `double` math
+already implement it.
+
+For custom operations, set `Operations` before adding custom entries:
+
+```csharp
+using var strength = new ModifiableProperty<int, object, string>(1200) { Operations = operations };
+strength.PushModifier(new Modifier<string>(ModifierOperation.Custom, 999, CustomName: "soft-cap", Source: "str-cap"));
+```
+
+Adding a custom entry whose name isn't registered throws, and so does replacing `Operations` with a
+registry that's missing a name in use. Evaluation itself never hits an unknown name.
+
+### Failures, ordering and reentrancy
+
+- **Atomic changes:** every change computes the new effective value before committing. If a filter,
+  modifier or custom operation throws, the property is left unchanged and the exception reaches the
+  caller; nothing is swallowed by the reactive streams.
+- **Notification order for a delta:** `Base`, then `Effective`, then `ProcessedDeltas`, then
+  `AppliedDeltas`. `CurrentValue` is already up to date when `Base` notifies.
+- **Reentrancy:** a delta (or `SetBaseValue`) requested from inside a subscriber while a delta is being
+  applied is queued and applied once the current one has finished notifying, so `AppliedDeltas` always
+  reads as a sequential log you can replay. A queued `SetBaseValue` is computed when it's applied. If a
+  queued delta throws, the outermost `AddDelta` call throws and the rest of the queue is dropped.
 
 ---
 
@@ -333,23 +510,22 @@ If you don't provide custom math and use a non-numeric type, you might get unexp
 ## Buffs
 
 ```csharp
-IDisposable buff = atk.PushModifier("buff", v => v + 10);
-buff.Dispose(); // removes effect
+IDisposable buff = atk.PushModifier(v => v + 10, source: tarukaja);
+buff.Dispose();                 // removes this entry
+atk.RemoveModifiers(tarukaja);  // or: removes everything the status added
 ```
 
 ## Equipment
 
 ```csharp
-IDisposable equip = atk.PushModifier("sword", v => v + 25);
+IDisposable equip = atk.PushModifier(v => v + 25, source: sword);
 equip.Dispose(); // unequip
 ```
 
 ## Blocking Healing
 
 ```csharp
-var block = hp.PushFilter("block-healing", d =>
-    d.Delta > 0 ? d with { Delta = 0 } : d
-);
+var block = hp.PushFilter(d => d.Delta > 0 ? d with { Delta = 0 } : d, source: "block-healing");
 
 block.Dispose();
 ```
@@ -392,9 +568,11 @@ hp.ProcessedDeltas.Subscribe(d =>
 
 (Equipment, buffs, transformations)
 
-### ✔ Give every effect a unique ID
+### ✔ Tag effects with their source
 
-Prevents duplicates and enables precise removal. You can use GUIDs (`System.Guid.NewGuid().ToString()`) for temporary effects.
+Entries need no ids. Pass the status, item or skill instance as `source` so you can remove
+everything it added with one call and see it in breakdowns. Two identical buffs from two sources just
+stack.
 
 ### ✔ Use disposables for lifetime
 
@@ -483,9 +661,12 @@ ally.Hp.AddDelta(+20, new HealCtx(ally));
 ├── src/BrunoCPF.Modifiable/          # SDK library (Godot / .NET / NuGet) — compiles the
 │                                     #   source under unity/Runtime; no duplicated code
 ├── tests/BrunoCPF.Modifiable.Tests/  # engine-free NUnit suite (dotnet test)
+├── tests/BrunoCPF.Modifiable.SampleCheck/ # compiles unity/Samples~ at C# 9 against a UnityEngine stub
 ├── unity/                            # UPM package (consumed via ?path=unity)
 │   ├── package.json
 │   ├── Runtime/                      # the actual source — single source of truth
+│   │   ├── Core/                     #   pure, closure-free modifiers, filters and evaluators
+│   │   └── Common/                   #   reactive ModifiableProperty, value math, bounds
 │   └── Samples~/                     # Unity-only MonoBehaviour sample
 └── BrunoCPF.Modifiable.slnx
 ```
@@ -495,6 +676,11 @@ the `src/` project `<Compile Include>`s the same files for everyone else. Keep t
 of both `UnityEngine` and `Godot` types — engine-specific glue belongs in `unity/` overlays or
 a future Godot addon, never in the shared source.
 
+Unity compiles the shared source with C# 9, so the SDK project pins `<LangVersion>9.0</LangVersion>`:
+newer syntax (record structs, file-scoped namespaces, `required`, collection expressions) fails
+the .NET build instead of breaking Unity later. New files under `unity/Runtime` need a `.meta` file
+with a fresh GUID, because Unity ignores files without one in immutable (git URL) packages.
+
 # Building & Testing
 
 No engine required — the tests validate the exact code both Unity and Godot consume.
@@ -502,7 +688,11 @@ No engine required — the tests validate the exact code both Unity and Godot co
 ```bash
 dotnet build BrunoCPF.Modifiable.slnx -c Release   # library + tests
 dotnet test  BrunoCPF.Modifiable.slnx -c Release   # engine-free NUnit suite
+dotnet format whitespace BrunoCPF.Modifiable.slnx  # fix whitespace; CI runs it with --verify-no-changes
 ```
+
+Text files use LF endings and UTF-8 without a BOM (`.editorconfig`); `.gitattributes` normalizes
+line endings on commit.
 
 ---
 

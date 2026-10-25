@@ -29,7 +29,7 @@ namespace BrunoCPF.Modifiable.Tests
             Assert.AreEqual(15f, atk.CurrentValue);
             Assert.AreEqual(15f, atk.Base.CurrentValue);
 
-            using (atk.PushModifier(new ValueModifier<float>("atk-mod", baseValue => baseValue + 10f)))
+            using (atk.PushModifier(baseValue => baseValue + 10f, source: "atk-mod"))
             {
                 Assert.AreEqual(25f, atk.CurrentValue);
                 Assert.AreEqual(15f, atk.Base.CurrentValue);
@@ -38,10 +38,11 @@ namespace BrunoCPF.Modifiable.Tests
                 Assert.AreEqual(45f, atk.CurrentValue);
                 Assert.AreEqual(35f, atk.Base.CurrentValue);
 
-                using (atk.PushFilter("atk-increase-boost", delta =>
-                       delta.Delta > 0
-                           ? new ValueDelta<float, object>(delta.Delta * 1.5f, delta.Context)
-                           : delta))
+                using (atk.PushFilter(
+                           delta => delta.Delta > 0
+                               ? new ValueDelta<float, object>(delta.Delta * 1.5f, delta.Context)
+                               : delta,
+                           source: "atk-increase-boost"))
                 {
                     Assert.AreEqual(45f, atk.CurrentValue);
                     Assert.AreEqual(35f, atk.Base.CurrentValue);
@@ -112,7 +113,7 @@ namespace BrunoCPF.Modifiable.Tests
                 Assert.AreEqual(3, level.CurrentValue);
                 Assert.AreEqual(300, exp.CurrentValue);
 
-                using (level.PushModifier(new ValueModifier<int>("fixed-level-2", _ => 2)))
+                using (level.PushModifier(_ => 2, source: "fixed-level-2"))
                 {
                     Assert.AreEqual(2, level.CurrentValue);
                     Assert.AreEqual(3, level.Base.CurrentValue);
@@ -141,18 +142,20 @@ namespace BrunoCPF.Modifiable.Tests
             using ModifiableProperty<int, object> maxHp = new(500, new ValueBounds<int>(1, int.MaxValue));
             using ModifiableProperty<int, object> hp = new(500, new ValueBounds<int>(0, int.MaxValue));
 
-            using var _overflow = hp.PushFilter("hp-overflow-protection", valueDelta =>
-            {
-                int max = maxHp.CurrentValue;
-                int newHp = hp.CurrentValue + valueDelta.Delta;
-
-                if (newHp > max)
+            using var _overflow = hp.PushFilter(
+                valueDelta =>
                 {
-                    return new ValueDelta<int, object>(max - hp.CurrentValue, valueDelta.Context);
-                }
+                    int max = maxHp.CurrentValue;
+                    int newHp = hp.CurrentValue + valueDelta.Delta;
 
-                return valueDelta;
-            });
+                    if (newHp > max)
+                    {
+                        return new ValueDelta<int, object>(max - hp.CurrentValue, valueDelta.Context);
+                    }
+
+                    return valueDelta;
+                },
+                source: "hp-overflow-protection");
 
             Assert.AreEqual(500, hp.CurrentValue);
             Assert.AreEqual(500, maxHp.CurrentValue);
@@ -174,13 +177,15 @@ namespace BrunoCPF.Modifiable.Tests
             Assert.AreEqual(500, maxHp.CurrentValue);
 
             int cap = hp.CurrentValue;
-            using var modHandle = maxHp.PushModifier(new ValueModifier<int>("disease_cap", v => Math.Min(v, cap)));
+            maxHp.PushModifier(v => Math.Min(v, cap), source: "disease_cap");
             using var damageSub = hp.ProcessedDeltas.Subscribe(delta =>
             {
                 if (delta.Delta < 0)
                 {
+                    // Replace the cap: remove everything from the source, then install the new one.
                     cap = hp.CurrentValue;
-                    maxHp.AddOrUpdateModifier(new ValueModifier<int>("disease_cap", v => Math.Min(v, cap)));
+                    maxHp.RemoveModifiers("disease_cap");
+                    maxHp.PushModifier(v => Math.Min(v, cap), source: "disease_cap");
                 }
             });
 
@@ -194,30 +199,115 @@ namespace BrunoCPF.Modifiable.Tests
             Assert.AreEqual(100, hp.CurrentValue);
             Assert.AreEqual(100, maxHp.CurrentValue);
 
-            modHandle.Dispose();
+            Assert.AreEqual(1, maxHp.RemoveModifiers("disease_cap"));
             damageSub.Dispose();
 
             Assert.AreEqual(500, maxHp.CurrentValue);
         }
 
         [Test]
-        public void RemoveModifier_AfterDispose_DoesNotThrow()
+        public void RemoveModifiers_AfterDispose_DoesNotThrow()
         {
             ModifiableProperty<int, object> property = new(100, new ValueBounds<int>(0, 1000));
-            property.AddOrUpdateModifier("buff", v => v + 10);
+            property.PushModifier(v => v + 10, source: "buff");
             property.Dispose();
 
-            Assert.DoesNotThrow(() => property.RemoveModifier("buff"));
+            Assert.DoesNotThrow(() => property.RemoveModifiers("buff"));
+            Assert.DoesNotThrow(property.ClearModifiers);
         }
 
         [Test]
         public void DisposingPushModifierHandle_AfterPropertyDisposed_DoesNotThrow()
         {
             ModifiableProperty<int, object> property = new(100, new ValueBounds<int>(0, 1000));
-            IDisposable handle = property.PushModifier("buff", v => v + 10);
+            IDisposable handle = property.PushModifier(v => v + 10);
             property.Dispose();
 
             Assert.DoesNotThrow(handle.Dispose);
+        }
+
+        [Test]
+        public void Modifiers_NeedNoIdentity_EqualEntriesBothApply()
+        {
+            using ModifiableProperty<int, object> property = new(10);
+            Func<int, int> plusFive = v => v + 5;
+
+            property.PushModifier(plusFive, source: "buff");
+            property.PushModifier(plusFive, source: "buff");
+
+            Assert.AreEqual(20, property.CurrentValue);
+        }
+
+        [Test]
+        public void ModifierHandle_RemovesOnlyItsOwnEntry()
+        {
+            using ModifiableProperty<int, object> property = new(10);
+
+            IDisposable first = property.PushModifier(v => v + 1, source: "buff");
+            property.PushModifier(v => v + 100, source: "buff");
+
+            first.Dispose();
+            first.Dispose(); // idempotent
+
+            Assert.AreEqual(110, property.CurrentValue);
+        }
+
+        [Test]
+        public void RemoveModifiers_RemovesEverythingFromThatSource()
+        {
+            using ModifiableProperty<int, object> property = new(10);
+            var tarukaja = new object();
+            var sword = new object();
+
+            property.PushModifier(v => v + 1, source: tarukaja);
+            property.PushModifier(v => v + 10, source: sword);
+            property.PushModifier(v => v + 100, source: tarukaja);
+
+            Assert.AreEqual(2, property.RemoveModifiers(tarukaja));
+            Assert.AreEqual(20, property.CurrentValue);
+            Assert.AreEqual(0, property.RemoveModifiers(tarukaja));
+        }
+
+        [Test]
+        public void RemoveFilters_RemovesEverythingFromThatSource()
+        {
+            using ModifiableProperty<int, object> property = new(0);
+
+            property.PushFilter(d => d with { Delta = d.Delta * 2 }, source: "boost");
+            property.PushFilter(d => d with { Delta = d.Delta + 1 }, source: "flat");
+            property.PushFilter(d => d with { Delta = d.Delta * 3 }, source: "boost");
+
+            Assert.AreEqual(2, property.RemoveFilters("boost"));
+            property.AddDelta(10);
+
+            Assert.AreEqual(11, property.CurrentValue);
+        }
+
+        [Test]
+        public void ClearModifiers_RemovesEveryModifier()
+        {
+            using ModifiableProperty<int, object> property = new(10);
+            property.PushModifier(v => v + 1);
+            property.PushModifier(v => v * 3);
+
+            property.ClearModifiers();
+
+            Assert.AreEqual(10, property.CurrentValue);
+        }
+
+        [Test]
+        public void Modifiers_StreamListsEntriesInEvaluationOrder()
+        {
+            using ModifiableProperty<int, object> property = new(10);
+            IReadOnlyList<ModifierEntry<int, object>>? latest = null;
+            using IDisposable subscription = property.Modifiers.Subscribe(list => latest = list);
+
+            property.PushModifier(v => v * 2, priority: 1, source: "late");
+            property.PushModifier(v => v + 1, source: "early");
+
+            CollectionAssert.AreEqual(new object[] { "early", "late" }, latest!.Select(entry => entry.Source).ToArray());
+            Assert.IsNotNull(latest![0].Function);
+            Assert.IsNull(latest[0].Data);
         }
 
         // List<T>.Sort is an unstable introsort once a list exceeds 16 items, so these use enough
@@ -238,7 +328,7 @@ namespace BrunoCPF.Modifiable.Tests
             for (int i = 1; i <= ManyEntries; i++)
             {
                 int id = i;
-                property.AddOrUpdateModifier($"m{id}", v => (v * 31 + id) % Mod);
+                property.PushModifier(v => (v * 31 + id) % Mod);
             }
 
             Assert.AreEqual(Fold(7, Enumerable.Range(1, ManyEntries).ToArray()), property.CurrentValue);
@@ -258,7 +348,7 @@ namespace BrunoCPF.Modifiable.Tests
                     int id = i;
                     int priority = rng.Next(0, 4);
                     added.Add((id, priority));
-                    property.AddOrUpdateModifier($"m{id}", v => (v * 31 + id) % Mod, priority);
+                    property.PushModifier(v => (v * 31 + id) % Mod, priority);
                 }
 
                 int[] expectedOrder = added.OrderBy(a => a.Priority).Select(a => a.Id).ToArray();
@@ -271,15 +361,16 @@ namespace BrunoCPF.Modifiable.Tests
         {
             using var property = NewLongProperty();
             var order = Enumerable.Range(1, ManyEntries).ToList();
+            var handles = new Dictionary<int, IDisposable>();
 
             foreach (int id in order)
             {
                 int captured = id;
-                property.AddOrUpdateModifier($"m{id}", v => (v * 31 + captured) % Mod);
+                handles[id] = property.PushModifier(v => (v * 31 + captured) % Mod);
             }
 
-            property.RemoveModifier("m5");
-            property.AddOrUpdateModifier("m5", v => (v * 31 + 5) % Mod);
+            handles[5].Dispose();
+            property.PushModifier(v => (v * 31 + 5) % Mod);
             order.Remove(5);
             order.Add(5);
 
@@ -287,61 +378,12 @@ namespace BrunoCPF.Modifiable.Tests
         }
 
         [Test]
-        public void Modifiers_ReplaceWithSameId_KeepsPosition()
-        {
-            using var property = NewLongProperty();
-
-            for (int i = 1; i <= ManyEntries; i++)
-            {
-                int id = i;
-                property.AddOrUpdateModifier($"m{id}", v => (v * 31 + id) % Mod);
-            }
-
-            // Replacement uses a different function but must stay in the same slot.
-            property.AddOrUpdateModifier("m3", v => (v * 31 + 1000) % Mod);
-
-            int[] expected = Enumerable.Range(1, ManyEntries).Select(i => i == 3 ? 1000 : i).ToArray();
-            Assert.AreEqual(Fold(7, expected), property.CurrentValue);
-        }
-
-        [Test]
-        public void Modifiers_ReplaceWithNewPriority_MovesToEndOfNewPriority()
-        {
-            using var property = NewLongProperty();
-
-            for (int i = 1; i <= ManyEntries; i++)
-            {
-                int id = i;
-                property.AddOrUpdateModifier($"m{id}", v => (v * 31 + id) % Mod);
-            }
-
-            property.AddOrUpdateModifier("m2", v => (v * 31 + 2) % Mod, priority: 1);
-
-            int[] expected = Enumerable.Range(1, ManyEntries).Where(i => i != 2).Append(2).ToArray();
-            Assert.AreEqual(Fold(7, expected), property.CurrentValue);
-        }
-
-        [Test]
-        public void Modifiers_InitialModifiers_AreStablySortedByPriority()
-        {
-            var initial = Enumerable.Range(1, ManyEntries)
-                .Select(i => new ValueModifier<long>($"m{i}", v => (v * 31 + i) % Mod, i % 3))
-                .ToList();
-
-            using ModifiableProperty<long, object> property = new(
-                7, new ValueBounds<long>(long.MinValue, long.MaxValue), initial);
-
-            int[] expected = Enumerable.Range(1, ManyEntries).OrderBy(i => i % 3).ToArray();
-            Assert.AreEqual(Fold(7, expected), property.CurrentValue);
-        }
-
-        [Test]
         public void Modifiers_ClassicAddThenMultiply_FollowsInsertionOrder()
         {
             using ModifiableProperty<float, object> property = new(10f, 0f, 999f);
 
-            property.AddOrUpdateModifier("add", v => v + 10f);
-            property.AddOrUpdateModifier("mul", v => v * 2f);
+            property.PushModifier(v => v + 10f);
+            property.PushModifier(v => v * 2f);
 
             Assert.AreEqual(40f, property.CurrentValue);
         }
@@ -354,7 +396,7 @@ namespace BrunoCPF.Modifiable.Tests
             for (int i = 1; i <= ManyEntries; i++)
             {
                 int id = i;
-                property.AddOrUpdateFilter($"f{id}", d => new ValueDelta<long, object>((d.Delta * 31 + id) % Mod, d.Context));
+                property.PushFilter(d => new ValueDelta<long, object>((d.Delta * 31 + id) % Mod, d.Context));
             }
 
             property.AddDelta(5);
@@ -376,10 +418,7 @@ namespace BrunoCPF.Modifiable.Tests
                     int id = i;
                     int priority = rng.Next(0, 4);
                     added.Add((id, priority));
-                    property.AddOrUpdateFilter(
-                        $"f{id}",
-                        d => new ValueDelta<long, object>((d.Delta * 31 + id) % Mod, d.Context),
-                        priority);
+                    property.PushFilter(d => new ValueDelta<long, object>((d.Delta * 31 + id) % Mod, d.Context), priority);
                 }
 
                 property.AddDelta(5);
@@ -390,42 +429,55 @@ namespace BrunoCPF.Modifiable.Tests
         }
 
         [Test]
-        public void Filters_ReplaceWithSameId_KeepsPosition()
+        public void FilterHandle_RemovesOnlyItsOwnEntry()
         {
-            using var property = NewLongProperty(0);
+            using ModifiableProperty<int, object> property = new(0);
 
-            for (int i = 1; i <= ManyEntries; i++)
-            {
-                int id = i;
-                property.AddOrUpdateFilter($"f{id}", d => new ValueDelta<long, object>((d.Delta * 31 + id) % Mod, d.Context));
-            }
+            IDisposable doubling = property.PushFilter(d => d with { Delta = d.Delta * 2 }, source: "x");
+            property.PushFilter(d => d with { Delta = d.Delta + 1 }, source: "x");
+            doubling.Dispose();
 
-            property.AddOrUpdateFilter("f3", d => new ValueDelta<long, object>((d.Delta * 31 + 1000) % Mod, d.Context));
-            property.AddDelta(5);
+            property.AddDelta(10);
 
-            int[] expected = Enumerable.Range(1, ManyEntries).Select(i => i == 3 ? 1000 : i).ToArray();
-            Assert.AreEqual(Fold(5, expected), property.Base.CurrentValue);
+            Assert.AreEqual(11, property.CurrentValue);
         }
 
         [Test]
-        public void RemoveFilter_AfterDispose_DoesNotThrow()
+        public void RemoveFilters_AfterDispose_DoesNotThrow()
         {
             ModifiableProperty<int, object> property = new(100, new ValueBounds<int>(0, 1000));
-            property.AddOrUpdateFilter("noop", delta => delta);
+            IDisposable handle = property.PushFilter(delta => delta, source: "noop");
             property.Dispose();
 
-            Assert.DoesNotThrow(() => property.RemoveFilter("noop"));
+            Assert.DoesNotThrow(() => property.RemoveFilters("noop"));
+            Assert.DoesNotThrow(handle.Dispose);
         }
 
         [Test]
         public void ClearFilters_AfterDispose_DoesNotThrow()
         {
             ModifiableProperty<int, object> property = new(100, new ValueBounds<int>(0, 1000));
-            property.AddOrUpdateFilter("noop", delta => delta);
+            property.PushFilter(delta => delta);
             property.Dispose();
 
             Assert.DoesNotThrow(property.ClearFilters);
         }
+
+        [Test]
+        public void TypedSources_WorkWithTheThreeParameterProperty()
+        {
+            using var hp = new ModifiableProperty<int, object, Source>(100, new ValueBounds<int>(0, 999));
+            var poison = new Source("poison", 1);
+
+            hp.PushModifier(v => v - 10, source: poison);
+            hp.PushModifier(v => v - 5, source: new Source("poison", 2));
+
+            Assert.AreEqual(85, hp.CurrentValue);
+            Assert.AreEqual(1, hp.RemoveModifiers(new Source("poison", 1))); // value equality
+            Assert.AreEqual(95, hp.CurrentValue);
+        }
+
+        private sealed record Source(string Status, int Instance);
 
         [Test]
         public void Dispose_IsIdempotent()

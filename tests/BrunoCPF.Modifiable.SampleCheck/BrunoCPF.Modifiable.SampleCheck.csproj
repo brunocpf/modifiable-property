@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Compile-only check: builds the Unity sample (unity/Samples~) the way Unity would — C# 9,
+    netstandard2.1 — against a minimal stub of the few UnityEngine APIs it uses. It catches samples
+    that drift from the library API or use syntax Unity can't compile. Nothing here ships or runs.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../../unity/Samples~/**/*.cs" />
+    <Compile Include="UnityEngineStub.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/BrunoCPF.Modifiable/BrunoCPF.Modifiable.csproj" />
+  </ItemGroup>
+
+</Project>

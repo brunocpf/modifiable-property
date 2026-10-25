@@ -30,7 +30,7 @@ namespace BrunoCPF.Modifiable.Samples
             _hp.AddTo(_disposables);
 
             // Prevent over-heal
-            _hp.PushFilter("hp-overflow-protection", delta =>
+            _hp.PushFilter(delta =>
             {
                 int newHp = _hp.CurrentValue + delta.Delta;
                 if (newHp > _maxHp.CurrentValue)
@@ -38,7 +38,7 @@ namespace BrunoCPF.Modifiable.Samples
                     return delta with { Delta = _maxHp.CurrentValue - _hp.CurrentValue };
                 }
                 return delta;
-            }).AddTo(_disposables);
+            }, source: "hp-overflow-protection").AddTo(_disposables);
 
             // Level reacts to EXP
             _exp.Subscribe(toValue =>
@@ -80,14 +80,14 @@ namespace BrunoCPF.Modifiable.Samples
 
             using (var atkPhase = new CompositeDisposable())
             {
-                _atk.PushModifier(new ValueModifier<float>("atk-mod", baseValue => baseValue + 10f))
+                _atk.PushModifier(baseValue => baseValue + 10f, source: "atk-mod")
                     .AddTo(atkPhase);
                 _atk.AddDelta(+20f);
 
-                _atk.PushFilter("atk-increase-boost", delta =>
+                _atk.PushFilter(delta =>
                     delta.Delta > 0
                         ? new ValueDelta<float, object>(delta.Delta * 1.5f, delta.Context)
-                        : delta).AddTo(atkPhase);
+                        : delta, source: "atk-increase-boost").AddTo(atkPhase);
 
                 _atk.AddDelta(+20f); // boosted to +30
             }
@@ -99,7 +99,7 @@ namespace BrunoCPF.Modifiable.Samples
             _exp.AddDelta(200);   // level up to 3
             _level.SetBaseValue(1); // reset to 1 -> exp reset to 0
             _level.SetBaseValue(3); // set level to 3 -> exp to 300
-            using (var fixedLevel = _level.PushModifier(new ValueModifier<int>("fixed-level-2", _ => 2)))
+            using (var fixedLevel = _level.PushModifier(_ => 2, source: "fixed-level-2"))
             {
                 Debug.Log($"Level fixed to {_level.CurrentValue} while base is {_level.Base.CurrentValue}");
             } // dispose -> back to base value
@@ -113,14 +113,15 @@ namespace BrunoCPF.Modifiable.Samples
             using (var diseasePhase = new CompositeDisposable())
             {
                 int cap = _hp.CurrentValue;
-                _maxHp.PushModifier(new ValueModifier<int>("disease_cap", v => Math.Min(v, cap)))
-                    .AddTo(diseasePhase);
+                _maxHp.PushModifier(v => Math.Min(v, cap), source: "disease_cap");
+                Disposable.Create(() => _maxHp.RemoveModifiers("disease_cap")).AddTo(diseasePhase);
                 _hp.ProcessedDeltas.Subscribe(delta =>
                 {
                     if (delta.Delta < 0)
                     {
                         cap = _hp.CurrentValue;
-                        _maxHp.AddOrUpdateModifier(new ValueModifier<int>("disease_cap", v => Math.Min(v, cap)));
+                        _maxHp.RemoveModifiers("disease_cap");
+                        _maxHp.PushModifier(v => Math.Min(v, cap), source: "disease_cap");
                     }
                 }).AddTo(diseasePhase);
 
