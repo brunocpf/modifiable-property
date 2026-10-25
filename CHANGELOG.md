@@ -4,7 +4,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- **Pure core** (`BrunoCPF.Modifiable.Core`): closure-free, non-reactive building blocks that can be
+  compared, copied, saved and described.
+  - `Modifier` (`Add`, `Multiply`, `Override`, `AtLeast`, `AtMost`, with priority and an optional
+    `StackGroup`) and `ModifierStack.Evaluate` / `ModifierStack.Explain`. `StackPolicy` (`Stack`,
+    `HighestOnly`, `LowestOnly`) resolves stack groups; `ModifierBreakdown` lists every step,
+    including suppressed modifiers.
+  - `DeltaFilter` (`Scale`, `Add`, `CapMagnitude`, `Block`, limited by `DeltaDirection`) and
+    `DeltaPipeline.Apply`, which returns a `DeltaResult` with the requested, filtered and applied
+    amounts and the ids of the filters that fired.
+  - `ModifierMath.Apply` and `DeltaPipeline.ApplyFilter` for single operations.
+- `IScalableValueMath<T>` (`ToDouble` / `FromDouble`), implemented by the built-in `int`, `long`,
+  `float` and `double` math; `ValueMath.GetScalableValueMath<T>()`.
+- `RoundingMode` (`TowardZero`, `Floor`, `Ceiling`, `Nearest`) for `IntValueMath` / `LongValueMath`.
+  Integral results round toward zero by default and saturate at the type's limits.
+- `ModifiableProperty` now accepts data entries: `AddOrUpdateModifier(Modifier)`,
+  `PushModifier(Modifier)`, `AddOrUpdateFilter(DeltaFilter)`, `PushFilter(DeltaFilter)`. They share
+  one id space and one priority order with function-based entries. New members: `DataModifiers`,
+  `Stacking`, `Explain()` and `AppliedDeltas` (a `DeltaResult` per change, including which filters
+  fired).
+
+### Changed
+- `ModifiableProperty` is rebuilt on the pure core: the base value is stored directly instead of
+  folded through a `Scan` pipeline, and filters and modifiers are evaluated in one pass. The public
+  API and emission order are unchanged (`Base` updates before `ProcessedDeltas` emits).
+- The SDK project pins `LangVersion` 9.0 to match the C# version Unity compiles the shared source
+  with.
+
 ### Fixed
+- Omitted bounds are now unbounded. For value types, `ValueBounds<TValue>` used `default` for a
+  missing side and always applied it, so `new ValueBounds<int>()` clamped everything to 0, a property
+  created without bounds always read 0, and `min: 1` without `max` clamped to `[1, 0]`.
+  - `ValueBounds<TValue>` tracks each side with `HasMin` / `HasMax`. New: `Unbounded`, `AtLeast(min)`,
+    `AtMost(max)`. A minimum greater than the maximum now throws `ArgumentException`.
+  - `ModifiableProperty`'s `min` / `max` constructor parameters are now `TValue?` (default `null`,
+    meaning unbounded). This is source-compatible for callers passing values, but `new(value, null)`
+    is now ambiguous; name the argument (`bounds: null`).
+  - New `ModifiableProperty(TValue initialValue)` constructor for an unbounded property.
+    `new ModifiableProperty<int, object>(100)` previously didn't compile (ambiguous overloads).
+  - `ValueBounds<TValue>` is no longer a positional record, so its `Deconstruct` method is gone.
 - Modifiers and filters with equal priority are now applied in insertion order. Previously they were
   ordered with the unstable `List<T>.Sort`, so equal-priority, non-commutative entries (e.g. one
   adds, one multiplies) could resolve in a different order than they were added. Entries are now

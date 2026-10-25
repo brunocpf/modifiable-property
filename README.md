@@ -267,6 +267,11 @@ hp.AddDelta(-200); // → 0
 hp.AddDelta(+999); // → 100
 ```
 
+An omitted side is unbounded: `new ModifiableProperty<int, object>(10, min: 1)` has no maximum, and
+`new ModifiableProperty<int, object>(10)` is not clamped at all. With an explicit `ValueBounds`, use
+`new ValueBounds<int>(0, 100)`, `ValueBounds<int>.AtLeast(1)`, `ValueBounds<int>.AtMost(99)` or
+`ValueBounds<int>.Unbounded`.
+
 Use bounds to enforce static gameplay rules (e.g., HP can’t ever go below 0). For dynamic caps (e.g., HP ≤ MaxHP), use filters.
 
 ---
@@ -325,6 +330,107 @@ var mana = new ModifiableProperty<Mana, object>(
 This is particularly useful for enums with custom logic (e.g., elemental affinities).
 
 If you don't provide custom math and use a non-numeric type, you might get unexpected behavior.
+
+To use [data modifiers and filters](#pure-core-data-modifiers--filters) with a custom type, implement
+`IScalableValueMath<T>` instead. It adds `ToDouble` / `FromDouble`, so scaling, overrides and caps can
+be computed and converted back (rounding and saturating as you choose).
+
+---
+
+# Pure Core (Data Modifiers & Filters)
+
+`BrunoCPF.Modifiable.Core` is a closure-free, non-reactive core. Modifiers and filters are plain
+records instead of lambdas, so you can compare, copy, save and describe them, and the evaluators
+report what each one did. It's built for simulations, saves, replays and AI lookahead, where state
+has to be plain data. `ModifiableProperty` is built on top of it.
+
+### Data modifiers
+
+```csharp
+using BrunoCPF.Modifiable.Core;
+
+Modifier[] modifiers =
+{
+    new Modifier("sword", ModifierOperation.Add, 10),
+    new Modifier("boost", ModifierOperation.Multiply, 1.2, Priority: 1),
+};
+
+int strength = ModifierStack.Evaluate(40, modifiers); // (40 + 10) × 1.2 = 60
+```
+
+Operations: `Add`, `Multiply`, `Override`, `AtLeast`, `AtMost`. Modifiers run in ascending
+`Priority`; equal priorities keep the order you pass them in.
+
+### Stack groups
+
+Modifiers that share a `StackGroup` combine according to a `StackPolicy`: `Stack` (default),
+`HighestOnly` or `LowestOnly`.
+
+```csharp
+Modifier[] boosts =
+{
+    new Modifier("fire-boost-ring", ModifierOperation.Multiply, 1.25, StackGroup: "boost.fire"),
+    new Modifier("fire-boost-skill", ModifierOperation.Multiply, 1.5, StackGroup: "boost.fire"),
+};
+
+int damage = ModifierStack.Evaluate(100, boosts, stacking: _ => StackPolicy.HighestOnly); // 150
+```
+
+### Breakdowns
+
+`Explain` returns every step, including modifiers suppressed by their group, for tooltips and
+debugging:
+
+```csharp
+ModifierBreakdown<int> breakdown = ModifierStack.Explain(40, modifiers);
+// Base 40 → sword 40→50 → boost 50→60 = 60
+```
+
+### Data filters
+
+```csharp
+DeltaFilter[] filters =
+{
+    new DeltaFilter("guard", DeltaOperation.Scale, 0.5, DeltaDirection.Decrease),
+    new DeltaFilter("damage-cap", DeltaOperation.CapMagnitude, 30, Priority: 1),
+};
+
+DeltaResult<int> hit = DeltaPipeline.Apply(current: 40, delta: -100, filters, new ValueBounds<int>(0, 100));
+// hit.Filtered == -30, hit.After == 10, hit.Applied == -30, hit.FiredFilters == ["guard", "damage-cap"]
+```
+
+Operations: `Scale`, `Add`, `CapMagnitude`, `Block`. `DeltaDirection` limits a filter to increases,
+decreases or both. `FiredFilters` lists the filters that actually changed the delta, which is what
+you need to show "Guard!" or log a trigger.
+
+### Rounding
+
+Values are combined in `double` and converted back after **every** step. `int` and `long` round
+toward zero by default (`7.5 → 7`, `-7.5 → -7`) and saturate at their limits. Pick another mode with
+`new IntValueMath(RoundingMode.Floor)` (also `Ceiling`, `Nearest`) and pass it as `math`. `long`
+values above 2^53 lose precision when scaled.
+
+### With `ModifiableProperty`
+
+`ModifiableProperty` accepts data entries next to the function-based ones. Both kinds share one id
+space and one priority order.
+
+```csharp
+using var attack = new ModifiableProperty<int, object>(100, new ValueBounds<int>(0, 9999));
+
+using var ring = attack.PushModifier(new Modifier("ring", ModifierOperation.Multiply, 1.25, StackGroup: "boost"));
+using var skill = attack.PushModifier(new Modifier("skill", ModifierOperation.Multiply, 1.5, StackGroup: "boost"));
+attack.Stacking = _ => StackPolicy.HighestOnly;  // 150
+
+using var guard = attack.PushFilter(new DeltaFilter("guard", DeltaOperation.Scale, 0.5, DeltaDirection.Decrease));
+attack.AppliedDeltas.Subscribe(result => Log(result.FiredFilters));
+
+ModifierBreakdown<int> breakdown = attack.Explain();
+```
+
+`AppliedDeltas` emits a `DeltaResult` for every change, reporting function-based filters too. Data
+entries need an `IScalableValueMath<T>`; the built-in `int`, `long`, `float` and `double` math
+already implement it.
 
 ---
 
@@ -486,6 +592,8 @@ ally.Hp.AddDelta(+20, new HealCtx(ally));
 ├── unity/                            # UPM package (consumed via ?path=unity)
 │   ├── package.json
 │   ├── Runtime/                      # the actual source — single source of truth
+│   │   ├── Core/                     #   pure, closure-free modifiers, filters and evaluators
+│   │   └── Common/                   #   reactive ModifiableProperty, value math, bounds
 │   └── Samples~/                     # Unity-only MonoBehaviour sample
 └── BrunoCPF.Modifiable.slnx
 ```
@@ -494,6 +602,11 @@ The library code lives **once**, under `unity/Runtime`. Unity compiles it via th
 the `src/` project `<Compile Include>`s the same files for everyone else. Keep that code free
 of both `UnityEngine` and `Godot` types — engine-specific glue belongs in `unity/` overlays or
 a future Godot addon, never in the shared source.
+
+Unity compiles the shared source with C# 9, so the SDK project pins `<LangVersion>9.0</LangVersion>`:
+newer syntax (record structs, file-scoped namespaces, `required`, collection expressions) fails
+the .NET build instead of breaking Unity later. New files under `unity/Runtime` need a `.meta` file
+with a fresh GUID, because Unity ignores files without one in immutable (git URL) packages.
 
 # Building & Testing
 

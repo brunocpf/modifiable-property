@@ -51,5 +51,12 @@ namespace BrunoCPF.Modifiable.Common.Math
                 return null;
             }
         }
+
+        /// <summary>
+        /// Returns the default scalable math implementation for the given numeric type, if one exists.
+        /// The built-in integral types round toward zero.
+        /// </summary>
+        public static IScalableValueMath<TValue>? GetScalableValueMath<TValue>() where TValue : struct =>
+            GetValueMath<TValue>() as IScalableValueMath<TValue>;
     }
 }

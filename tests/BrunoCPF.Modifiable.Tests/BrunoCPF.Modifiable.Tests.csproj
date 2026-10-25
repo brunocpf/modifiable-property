@@ -12,8 +12,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <IsPackable>false</IsPackable>
-    <!-- Underscores in test method names are intentional (Given_When_Then style). -->
-    <NoWarn>$(NoWarn);CA1707</NoWarn>
+    <!-- Underscores in test method names are intentional (Given_When_Then style).
+         CA1861: inline expected-value arrays in assertions are clearer than static fields. -->
+    <NoWarn>$(NoWarn);CA1707;CA1861</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
