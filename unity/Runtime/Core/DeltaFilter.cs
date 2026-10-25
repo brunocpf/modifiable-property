@@ -12,12 +12,17 @@ namespace BrunoCPF.Modifiable.Core
     /// <param name="Value">The operand; ignored by <see cref="DeltaOperation.Block"/>.</param>
     /// <param name="AppliesTo">Which deltas the filter applies to.</param>
     /// <param name="Priority">Lower numbers run earlier; equal priorities keep their given order.</param>
+    /// <param name="CustomName">
+    /// The registered operation name; required for <see cref="DeltaOperation.Custom"/> and not
+    /// allowed otherwise.
+    /// </param>
     public sealed record DeltaFilter(
         string Id,
         DeltaOperation Operation,
         double Value = 0d,
         DeltaDirection AppliesTo = DeltaDirection.Any,
-        int Priority = 0)
+        int Priority = 0,
+        string? CustomName = null)
     {
         /// <summary>Stable identifier used for replacement, removal and fired-filter reports.</summary>
         public string Id { get; } = string.IsNullOrWhiteSpace(Id)
@@ -40,5 +45,8 @@ namespace BrunoCPF.Modifiable.Core
         public DeltaDirection AppliesTo { get; } = Enum.IsDefined(typeof(DeltaDirection), AppliesTo)
             ? AppliesTo
             : throw new ArgumentOutOfRangeException(nameof(AppliesTo), AppliesTo, null);
+
+        /// <summary>The registered operation name for <see cref="DeltaOperation.Custom"/>; otherwise null.</summary>
+        public string? CustomName { get; } = CustomOperationNames.Validate(Operation == DeltaOperation.Custom, CustomName);
     }
 }

@@ -21,12 +21,14 @@ namespace BrunoCPF.Modifiable.Core
         /// <param name="filters">The filters; ids must be unique.</param>
         /// <param name="bounds">Optional bounds for the resulting value.</param>
         /// <param name="math">Math for <typeparamref name="TValue"/>; defaults to the built-in implementation.</param>
+        /// <param name="operations">Registry for <see cref="DeltaOperation.Custom"/> filters.</param>
         public static DeltaResult<TValue> Apply<TValue>(
             TValue current,
             TValue delta,
             IEnumerable<DeltaFilter> filters,
             ValueBounds<TValue>? bounds = null,
-            IScalableValueMath<TValue>? math = null)
+            IScalableValueMath<TValue>? math = null,
+            CustomOperations? operations = null)
             where TValue : struct, IComparable
         {
             if (filters is null)
@@ -39,7 +41,7 @@ namespace BrunoCPF.Modifiable.Core
             TValue filtered = delta;
             foreach (DeltaFilter filter in Order(filters))
             {
-                TValue next = ApplyFilter(filtered, filter, resolvedMath);
+                TValue next = ApplyFilter(filtered, filter, resolvedMath, operations);
                 if (!EqualityComparer<TValue>.Default.Equals(next, filtered))
                 {
                     fired.Add(filter.Id);
@@ -67,7 +69,14 @@ namespace BrunoCPF.Modifiable.Core
         /// Applies one filter to a delta. Filters whose <see cref="DeltaFilter.AppliesTo"/> does not
         /// match the delta's sign return it unchanged; zero deltas match only <see cref="DeltaDirection.Any"/>.
         /// </summary>
-        public static TValue ApplyFilter<TValue>(TValue delta, DeltaFilter filter, IScalableValueMath<TValue> math)
+        /// <exception cref="InvalidOperationException">
+        /// A custom filter's operation isn't registered, or it returned a non-finite result.
+        /// </exception>
+        public static TValue ApplyFilter<TValue>(
+            TValue delta,
+            DeltaFilter filter,
+            IScalableValueMath<TValue> math,
+            CustomOperations? operations = null)
             where TValue : struct
         {
             if (filter is null)
@@ -99,6 +108,7 @@ namespace BrunoCPF.Modifiable.Core
                 DeltaOperation.Add => value + filter.Value,
                 DeltaOperation.CapMagnitude => System.Math.Sign(value) * System.Math.Min(System.Math.Abs(value), filter.Value),
                 DeltaOperation.Block => 0d,
+                DeltaOperation.Custom => CustomOperations.ApplyDelta(operations, filter.CustomName!, value, filter.Value),
                 _ => throw new ArgumentOutOfRangeException(nameof(filter), filter.Operation, null),
             };
 

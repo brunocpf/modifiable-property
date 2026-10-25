@@ -12,12 +12,17 @@ namespace BrunoCPF.Modifiable.Core
     /// <param name="Value">The operand.</param>
     /// <param name="Priority">Lower numbers run earlier; equal priorities keep their given order.</param>
     /// <param name="StackGroup">Optional group whose members are resolved by a <see cref="StackPolicy"/>.</param>
+    /// <param name="CustomName">
+    /// The registered operation name; required for <see cref="ModifierOperation.Custom"/> and not
+    /// allowed otherwise.
+    /// </param>
     public sealed record Modifier(
         string Id,
         ModifierOperation Operation,
         double Value,
         int Priority = 0,
-        string? StackGroup = null)
+        string? StackGroup = null,
+        string? CustomName = null)
     {
         /// <summary>Stable identifier used for replacement, removal and breakdowns.</summary>
         public string Id { get; } = string.IsNullOrWhiteSpace(Id)
@@ -38,5 +43,8 @@ namespace BrunoCPF.Modifiable.Core
         public string? StackGroup { get; } = StackGroup is not null && StackGroup.Trim().Length == 0
             ? throw new ArgumentException("Stack group cannot be blank; use null for no group.", nameof(StackGroup))
             : StackGroup;
+
+        /// <summary>The registered operation name for <see cref="ModifierOperation.Custom"/>; otherwise null.</summary>
+        public string? CustomName { get; } = CustomOperationNames.Validate(Operation == ModifierOperation.Custom, CustomName);
     }
 }

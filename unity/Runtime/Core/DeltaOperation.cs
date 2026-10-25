@@ -16,5 +16,11 @@ namespace BrunoCPF.Modifiable.Core
 
         /// <summary>Replace the delta with zero (healing block); the operand is ignored.</summary>
         Block,
+
+        /// <summary>
+        /// A named operation from a <see cref="CustomOperations"/> registry, given by
+        /// <see cref="DeltaFilter.CustomName"/>.
+        /// </summary>
+        Custom,
     }
 }

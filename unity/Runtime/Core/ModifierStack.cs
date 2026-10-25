@@ -19,13 +19,15 @@ namespace BrunoCPF.Modifiable.Core
         /// <param name="modifiers">The modifiers; ids must be unique.</param>
         /// <param name="math">Math for <typeparamref name="TValue"/>; defaults to the built-in implementation.</param>
         /// <param name="stacking">Policy per stack group; groups default to <see cref="StackPolicy.Stack"/>.</param>
+        /// <param name="operations">Registry for <see cref="ModifierOperation.Custom"/> modifiers.</param>
         public static TValue Evaluate<TValue>(
             TValue baseValue,
             IEnumerable<Modifier> modifiers,
             IScalableValueMath<TValue>? math = null,
-            Func<string, StackPolicy>? stacking = null)
+            Func<string, StackPolicy>? stacking = null,
+            CustomOperations? operations = null)
             where TValue : struct =>
-            Run(baseValue, modifiers, math, stacking, steps: null);
+            Run(baseValue, modifiers, math, stacking, operations, steps: null);
 
         /// <summary>
         /// Evaluates like <see cref="Evaluate{TValue}"/> and also returns every step, including
@@ -35,11 +37,12 @@ namespace BrunoCPF.Modifiable.Core
             TValue baseValue,
             IEnumerable<Modifier> modifiers,
             IScalableValueMath<TValue>? math = null,
-            Func<string, StackPolicy>? stacking = null)
+            Func<string, StackPolicy>? stacking = null,
+            CustomOperations? operations = null)
             where TValue : struct
         {
             var steps = new List<ModifierStep<TValue>>();
-            TValue result = Run(baseValue, modifiers, math, stacking, steps);
+            TValue result = Run(baseValue, modifiers, math, stacking, operations, steps);
             return new ModifierBreakdown<TValue>(baseValue, result, steps);
         }
 
@@ -103,6 +106,7 @@ namespace BrunoCPF.Modifiable.Core
             IEnumerable<Modifier> modifiers,
             IScalableValueMath<TValue>? math,
             Func<string, StackPolicy>? stacking,
+            CustomOperations? operations,
             List<ModifierStep<TValue>>? steps)
             where TValue : struct
         {
@@ -122,7 +126,7 @@ namespace BrunoCPF.Modifiable.Core
                 bool isSuppressed = suppressed.Contains(modifier.Id);
                 if (!isSuppressed)
                 {
-                    value = ModifierMath.Apply(value, modifier, resolvedMath);
+                    value = ModifierMath.Apply(value, modifier, resolvedMath, operations);
                 }
 
                 steps?.Add(new ModifierStep<TValue>(modifier.Id, modifier.Priority, before, value, isSuppressed, modifier));

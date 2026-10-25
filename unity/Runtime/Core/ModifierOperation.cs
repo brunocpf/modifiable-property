@@ -19,5 +19,11 @@ namespace BrunoCPF.Modifiable.Core
 
         /// <summary>min(value, operand).</summary>
         AtMost,
+
+        /// <summary>
+        /// A named operation from a <see cref="CustomOperations"/> registry, given by
+        /// <see cref="Modifier.CustomName"/>.
+        /// </summary>
+        Custom,
     }
 }

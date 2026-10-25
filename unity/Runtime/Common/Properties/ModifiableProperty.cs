@@ -29,6 +29,7 @@ namespace BrunoCPF.Modifiable.Common.Properties
         private readonly IScalableValueMath<TValue>? _scalableMath;
         private readonly CompositeDisposable _disposables = new();
         private Func<string, StackPolicy>? _stacking;
+        private CustomOperations? _operations;
         private bool _disposed;
 
         /// <summary>
@@ -78,6 +79,34 @@ namespace BrunoCPF.Modifiable.Common.Properties
             {
                 ThrowIfDisposed();
                 _stacking = value;
+                _modifiers.Value = _modifiers.Value.ToList();
+            }
+        }
+
+        /// <summary>
+        /// Registry for <see cref="ModifierOperation.Custom"/> modifiers and <see cref="DeltaOperation.Custom"/>
+        /// filters. Set it before adding custom entries; changing it re-evaluates <see cref="Effective"/>.
+        /// </summary>
+        /// <exception cref="InvalidOperationException">
+        /// The new registry is missing an operation that a current custom entry uses.
+        /// </exception>
+        public CustomOperations? Operations
+        {
+            get => _operations;
+            set
+            {
+                ThrowIfDisposed();
+                foreach (ModifierSlot slot in _modifiers.Value)
+                {
+                    RequireCustomOperation(value, slot.Data?.CustomName, isModifier: true);
+                }
+
+                foreach (FilterSlot slot in _filters)
+                {
+                    RequireCustomOperation(value, slot.Data?.CustomName, isModifier: false);
+                }
+
+                _operations = value;
                 _modifiers.Value = _modifiers.Value.ToList();
             }
         }
@@ -225,8 +254,9 @@ namespace BrunoCPF.Modifiable.Common.Properties
                 }
                 else if (!isSuppressed)
                 {
-                    // Data modifiers are only accepted when scalable math exists; see AddOrUpdateModifier.
-                    modifiedValue = ModifierMath.Apply(modifiedValue, slot.Data!, _scalableMath!);
+                    // Data modifiers are only accepted when scalable math (and, for custom ones, a
+                    // registered operation) exists; see AddOrUpdateModifier and Operations.
+                    modifiedValue = ModifierMath.Apply(modifiedValue, slot.Data!, _scalableMath!, _operations);
                 }
 
                 steps?.Add(new ModifierStep<TValue>(slot.Id, slot.Priority, before, modifiedValue, isSuppressed, slot.Data));
@@ -251,7 +281,7 @@ namespace BrunoCPF.Modifiable.Common.Properties
                 ValueDelta<TValue, TContext> next = slot.Function is not null
                     ? slot.Function.FilterFunc(filtered)
                     : new ValueDelta<TValue, TContext>(
-                        DeltaPipeline.ApplyFilter(filtered.Delta, slot.Data!, _scalableMath!),
+                        DeltaPipeline.ApplyFilter(filtered.Delta, slot.Data!, _scalableMath!, _operations),
                         filtered.Context);
 
                 if (!EqualityComparer<TValue>.Default.Equals(next.Delta, filtered.Delta))
@@ -331,7 +361,8 @@ namespace BrunoCPF.Modifiable.Common.Properties
         /// <see cref="AddOrUpdateModifier(ValueModifier{TValue})"/>.
         /// </summary>
         /// <exception cref="InvalidOperationException">
-        /// <typeparamref name="TValue"/> has no <see cref="IScalableValueMath{TValue}"/>.
+        /// <typeparamref name="TValue"/> has no <see cref="IScalableValueMath{TValue}"/>, or a custom
+        /// modifier's operation isn't registered in <see cref="Operations"/>.
         /// </exception>
         public void AddOrUpdateModifier(Modifier modifier)
         {
@@ -341,6 +372,7 @@ namespace BrunoCPF.Modifiable.Common.Properties
             }
 
             RequireScalableMath();
+            RequireCustomOperation(_operations, modifier.CustomName, isModifier: true);
             UpsertModifier(ModifierSlot.From(modifier));
         }
 
@@ -419,7 +451,8 @@ namespace BrunoCPF.Modifiable.Common.Properties
         /// <see cref="AddOrUpdateFilter(ValueDeltaFilter{TValue, TContext})"/>.
         /// </summary>
         /// <exception cref="InvalidOperationException">
-        /// <typeparamref name="TValue"/> has no <see cref="IScalableValueMath{TValue}"/>.
+        /// <typeparamref name="TValue"/> has no <see cref="IScalableValueMath{TValue}"/>, or a custom
+        /// filter's operation isn't registered in <see cref="Operations"/>.
         /// </exception>
         public void AddOrUpdateFilter(DeltaFilter filter)
         {
@@ -429,6 +462,7 @@ namespace BrunoCPF.Modifiable.Common.Properties
             }
 
             RequireScalableMath();
+            RequireCustomOperation(_operations, filter.CustomName, isModifier: false);
             UpsertFilter(FilterSlot.From(filter));
         }
 
@@ -561,6 +595,22 @@ namespace BrunoCPF.Modifiable.Common.Properties
             {
                 throw new InvalidOperationException(
                     $"Data modifiers and filters need an {nameof(IScalableValueMath<TValue>)} for {typeof(TValue).Name}.");
+            }
+        }
+
+        private static void RequireCustomOperation(CustomOperations? operations, string? customName, bool isModifier)
+        {
+            if (customName is null)
+            {
+                return;
+            }
+
+            bool registered = operations is not null
+                && (isModifier ? operations.HasModifierOperation(customName) : operations.HasDeltaOperation(customName));
+            if (!registered)
+            {
+                throw new InvalidOperationException(
+                    $"Custom {(isModifier ? "modifier" : "delta")} operation '{customName}' is not registered in {nameof(Operations)}.");
             }
         }
 

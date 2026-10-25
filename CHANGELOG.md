@@ -15,6 +15,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
     `DeltaPipeline.Apply`, which returns a `DeltaResult` with the requested, filtered and applied
     amounts and the ids of the filters that fired.
   - `ModifierMath.Apply` and `DeltaPipeline.ApplyFilter` for single operations.
+  - **Named custom operations:** `ModifierOperation.Custom` / `DeltaOperation.Custom` with a
+    `CustomName`, resolved through a `CustomOperations` registry
+    (`AddModifierOperation` / `AddDeltaOperation` taking `CustomModifierOperation` /
+    `CustomDeltaOperation` delegates). The evaluators take an optional `operations` argument, and
+    `ModifiableProperty` has an `Operations` property that validates names when entries are added
+    and when the registry changes.
 - `IScalableValueMath<T>` (`ToDouble` / `FromDouble`), implemented by the built-in `int`, `long`,
   `float` and `double` math; `ValueMath.GetScalableValueMath<T>()`.
 - `RoundingMode` (`TowardZero`, `Floor`, `Ceiling`, `Nearest`) for `IntValueMath` / `LongValueMath`.

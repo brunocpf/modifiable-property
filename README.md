@@ -403,6 +403,34 @@ Operations: `Scale`, `Add`, `CapMagnitude`, `Block`. `DeltaDirection` limits a f
 decreases or both. `FiredFilters` lists the filters that actually changed the delta, which is what
 you need to show "Guard!" or log a trigger.
 
+### Custom operations
+
+When the built-in operations aren't enough (soft caps, curves, lookup tables), register a named
+operation once and refer to it by name. The modifier or filter stays plain data that you can save,
+compare and explain, and the breakdown shows the name.
+
+```csharp
+var operations = new CustomOperations()
+    // above the threshold, only half of the excess counts
+    .AddModifierOperation("soft-cap", (value, threshold) =>
+        value <= threshold ? value : threshold + (value - threshold) / 2)
+    // never drop more than the operand in one hit
+    .AddDeltaOperation("endure", (delta, floor) => Math.Max(delta, floor));
+
+var cap = new Modifier("str-cap", ModifierOperation.Custom, 999, CustomName: "soft-cap");
+int strength = ModifierStack.Evaluate(1200, new[] { cap }, operations: operations); // 1099
+
+var endure = new DeltaFilter("endure", DeltaOperation.Custom, -99, CustomName: "endure");
+DeltaResult<int> hit = DeltaPipeline.Apply(100, -500, new[] { endure }, operations: operations); // After == 1
+```
+
+- Operations take `(value or delta, operand)` as `double` and return a `double`. The result is
+  converted back like the built-in operations (integral types round per step) and must be finite.
+- Names are case-sensitive and can't be registered twice or removed, so a saved name always means
+  the same operation. Modifier and delta operations have separate namespaces.
+- `CustomName` is required for `Custom` and not allowed with any other operation.
+- An unregistered name, or a missing registry, throws `InvalidOperationException` when evaluated.
+
 ### Rounding
 
 Values are combined in `double` and converted back after **every** step. `int` and `long` round
@@ -431,6 +459,16 @@ ModifierBreakdown<int> breakdown = attack.Explain();
 `AppliedDeltas` emits a `DeltaResult` for every change, reporting function-based filters too. Data
 entries need an `IScalableValueMath<T>`; the built-in `int`, `long`, `float` and `double` math
 already implement it.
+
+For custom operations, set `Operations` before adding custom entries:
+
+```csharp
+using var strength = new ModifiableProperty<int, object>(1200) { Operations = operations };
+strength.AddOrUpdateModifier(new Modifier("str-cap", ModifierOperation.Custom, 999, CustomName: "soft-cap"));
+```
+
+Adding a custom entry whose name isn't registered throws, and so does replacing `Operations` with a
+registry that's missing a name in use. Evaluation itself never hits an unknown name.
 
 ---
 
