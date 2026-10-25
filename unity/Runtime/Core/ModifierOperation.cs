@@ -1,7 +1,7 @@
 namespace BrunoCPF.Modifiable.Core
 {
     /// <summary>
-    /// How a <see cref="Modifier"/> combines its operand with the incoming value.
+    /// How a <see cref="Modifier{TSource}"/> combines its operand with the incoming value.
     /// </summary>
     public enum ModifierOperation
     {
@@ -22,7 +22,7 @@ namespace BrunoCPF.Modifiable.Core
 
         /// <summary>
         /// A named operation from a <see cref="CustomOperations"/> registry, given by
-        /// <see cref="Modifier.CustomName"/>.
+        /// <see cref="Modifier{TSource}.CustomName"/>.
         /// </summary>
         Custom,
     }

@@ -10,13 +10,13 @@ namespace BrunoCPF.Modifiable.Core
     /// <param name="Filtered">The delta after filters, before bounds.</param>
     /// <param name="After">The stored value after filters and bounds.</param>
     /// <param name="Applied">The change actually made (<paramref name="After"/> − <paramref name="Before"/>).</param>
-    /// <param name="FiredFilters">Ids of the filters that changed the delta, in evaluation order.</param>
-    public sealed record DeltaResult<TValue>(
+    /// <param name="FiredFilters">The filters that changed the delta, in evaluation order, with their sources.</param>
+    public sealed record DeltaResult<TValue, TSource>(
         TValue Before,
         TValue Requested,
         TValue Filtered,
         TValue After,
         TValue Applied,
-        IReadOnlyList<string> FiredFilters)
+        IReadOnlyList<DeltaStep<TValue, TSource>> FiredFilters)
         where TValue : struct;
 }

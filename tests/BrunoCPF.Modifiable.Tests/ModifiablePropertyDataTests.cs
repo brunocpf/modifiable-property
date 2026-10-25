@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using BrunoCPF.Modifiable.Common.Properties;
 using BrunoCPF.Modifiable.Core;
 using NUnit.Framework;
@@ -9,12 +10,15 @@ namespace BrunoCPF.Modifiable.Tests
 {
     public class ModifiablePropertyDataTests
     {
+        private static ModifiableProperty<int, object, string> NewInt(int initial, int max = 9999) =>
+            new(initial, new ValueBounds<int>(0, max));
+
         [Test]
         public void DataModifiers_ChangeTheEffectiveValue()
         {
-            using ModifiableProperty<int, object> strength = new(40, new ValueBounds<int>(0, 999));
+            using var strength = NewInt(40, 999);
 
-            using (strength.PushModifier(new Modifier("sword", ModifierOperation.Add, 10)))
+            using (strength.PushModifier(new Modifier<string>(ModifierOperation.Add, 10, Source: "sword")))
             {
                 Assert.AreEqual(50, strength.CurrentValue);
                 Assert.AreEqual(40, strength.Base.CurrentValue);
@@ -26,38 +30,49 @@ namespace BrunoCPF.Modifiable.Tests
         [Test]
         public void DataAndFunctionModifiers_ShareOnePriorityOrder()
         {
-            using ModifiableProperty<int, object> strength = new(10, new ValueBounds<int>(0, 999));
+            using var strength = NewInt(10, 999);
 
-            strength.AddOrUpdateModifier(new Modifier("double", ModifierOperation.Multiply, 2, Priority: 1));
-            strength.AddOrUpdateModifier("plus-five", value => value + 5);
+            strength.PushModifier(new Modifier<string>(ModifierOperation.Multiply, 2, Priority: 1));
+            strength.PushModifier(value => value + 5);
 
             // (10 + 5) * 2
             Assert.AreEqual(30, strength.CurrentValue);
         }
 
         [Test]
-        public void DataAndFunctionModifiers_ShareOneIdSpace()
+        public void RemoveModifiers_RemovesDataAndFunctionEntriesFromTheSource()
         {
-            using ModifiableProperty<int, object> strength = new(10, new ValueBounds<int>(0, 999));
-            var functions = new List<int>();
-            var data = new List<int>();
-            using IDisposable functionSubscription = strength.Modifiers.Subscribe(list => functions.Add(list.Count));
-            using IDisposable dataSubscription = strength.DataModifiers.Subscribe(list => data.Add(list.Count));
+            using var strength = NewInt(10, 999);
 
-            strength.AddOrUpdateModifier("buff", value => value + 1);
-            strength.AddOrUpdateModifier(new Modifier("buff", ModifierOperation.Add, 100));
+            strength.PushModifier(new Modifier<string>(ModifierOperation.Add, 100, Source: "buff"));
+            strength.PushModifier(value => value + 1, source: "buff");
+            strength.PushModifier(new Modifier<string>(ModifierOperation.Add, 3, Source: "ring"));
 
-            Assert.AreEqual(110, strength.CurrentValue);
-            Assert.AreEqual(0, functions[^1]);
-            Assert.AreEqual(1, data[^1]);
+            Assert.AreEqual(2, strength.RemoveModifiers("buff"));
+            Assert.AreEqual(13, strength.CurrentValue);
+        }
+
+        [Test]
+        public void Modifiers_StreamExposesDataEntries()
+        {
+            using var strength = NewInt(10, 999);
+            IReadOnlyList<ModifierEntry<int, string>>? latest = null;
+            using IDisposable subscription = strength.Modifiers.Subscribe(list => latest = list);
+            var sword = new Modifier<string>(ModifierOperation.Add, 10, Source: "sword");
+
+            strength.PushModifier(sword);
+
+            Assert.AreSame(sword, latest!.Single().Data);
+            Assert.AreEqual("sword", latest![0].Source);
+            Assert.IsNull(latest[0].Function);
         }
 
         [Test]
         public void Stacking_ResolvesStackGroupsAndReevaluatesWhenChanged()
         {
-            using ModifiableProperty<int, object> attack = new(100, new ValueBounds<int>(0, 9999));
-            attack.AddOrUpdateModifier(new Modifier("boost-a", ModifierOperation.Multiply, 1.5, StackGroup: "boost"));
-            attack.AddOrUpdateModifier(new Modifier("boost-b", ModifierOperation.Multiply, 2, StackGroup: "boost"));
+            using var attack = NewInt(100);
+            attack.PushModifier(new Modifier<string>(ModifierOperation.Multiply, 1.5, StackGroup: "boost", Source: "ring"));
+            attack.PushModifier(new Modifier<string>(ModifierOperation.Multiply, 2, StackGroup: "boost", Source: "skill"));
 
             Assert.AreEqual(300, attack.CurrentValue);
 
@@ -67,17 +82,18 @@ namespace BrunoCPF.Modifiable.Tests
         }
 
         [Test]
-        public void Explain_IncludesDataAndFunctionModifiers()
+        public void Explain_ReportsSourcesForDataAndFunctionModifiers()
         {
-            using ModifiableProperty<int, object> attack = new(40, new ValueBounds<int>(0, 9999));
-            attack.AddOrUpdateModifier("sword", value => value + 10);
-            attack.AddOrUpdateModifier(new Modifier("boost", ModifierOperation.Multiply, 1.2, Priority: 1));
+            using var attack = NewInt(40);
+            attack.PushModifier(value => value + 10, source: "sword");
+            attack.PushModifier(new Modifier<string>(ModifierOperation.Multiply, 1.2, Priority: 1, Source: "boost"));
 
-            ModifierBreakdown<int> breakdown = attack.Explain();
+            ModifierBreakdown<int, string> breakdown = attack.Explain();
 
             Assert.AreEqual(40, breakdown.Base);
             Assert.AreEqual(60, breakdown.Result);
             Assert.AreEqual(attack.CurrentValue, breakdown.Result);
+            CollectionAssert.AreEqual(new[] { "sword", "boost" }, breakdown.Steps.Select(step => step.Source).ToArray());
             Assert.IsNull(breakdown.Steps[0].Data);
             Assert.IsNotNull(breakdown.Steps[1].Data);
         }
@@ -85,11 +101,11 @@ namespace BrunoCPF.Modifiable.Tests
         [Test]
         public void DataFilters_TransformDeltasAndAreReportedWhenTheyFire()
         {
-            using ModifiableProperty<int, object> hp = new(100, new ValueBounds<int>(0, 100));
-            var results = new List<DeltaResult<int>>();
+            using var hp = NewInt(100, 100);
+            var results = new List<DeltaResult<int, string>>();
             using IDisposable subscription = hp.AppliedDeltas.Subscribe(results.Add);
 
-            using (hp.PushFilter(new DeltaFilter("guard", DeltaOperation.Scale, 0.5, DeltaDirection.Decrease)))
+            using (hp.PushFilter(new DeltaFilter<string>(DeltaOperation.Scale, 0.5, DeltaDirection.Decrease, Source: "guard")))
             {
                 hp.AddDelta(-30);
                 hp.AddDelta(+10);
@@ -101,7 +117,7 @@ namespace BrunoCPF.Modifiable.Tests
             Assert.AreEqual(65, hp.CurrentValue);
             Assert.AreEqual(3, results.Count);
             Assert.AreEqual((-30, -15, -15), (results[0].Requested, results[0].Filtered, results[0].Applied));
-            CollectionAssert.AreEqual(new[] { "guard" }, results[0].FiredFilters);
+            CollectionAssert.AreEqual(new[] { "guard" }, results[0].FiredFilters.Select(step => step.Source).ToArray());
             Assert.AreEqual((10, 10, 10), (results[1].Requested, results[1].Filtered, results[1].Applied));
             Assert.IsEmpty(results[1].FiredFilters);
             Assert.IsEmpty(results[2].FiredFilters);
@@ -110,17 +126,19 @@ namespace BrunoCPF.Modifiable.Tests
         [Test]
         public void AppliedDeltas_ReportFunctionFiltersThatChangeTheDelta()
         {
-            using ModifiableProperty<int, string> hp = new(100, new ValueBounds<int>(0, 100));
-            DeltaResult<int>? last = null;
+            using var hp = new ModifiableProperty<int, string, string>(100, new ValueBounds<int>(0, 100));
+            DeltaResult<int, string>? last = null;
             ValueDelta<int, string>? processed = null;
             using IDisposable results = hp.AppliedDeltas.Subscribe(result => last = result);
             using IDisposable deltas = hp.ProcessedDeltas.Subscribe(delta => processed = delta);
 
-            hp.AddOrUpdateFilter("endure", delta => delta with { Delta = Math.Max(delta.Delta, -99) });
+            hp.PushFilter(delta => delta with { Delta = Math.Max(delta.Delta, -99) }, source: "endure");
             hp.AddDelta(-500, "boss");
 
             Assert.AreEqual(1, hp.CurrentValue);
-            CollectionAssert.AreEqual(new[] { "endure" }, last!.FiredFilters);
+            DeltaStep<int, string> step = last!.FiredFilters.Single();
+            Assert.AreEqual(("endure", -500, -99), (step.Source, step.Before, step.After));
+            Assert.IsNull(step.Data);
             Assert.AreEqual("boss", processed!.Context);
             Assert.AreEqual(-99, processed.Delta);
         }
@@ -128,10 +146,10 @@ namespace BrunoCPF.Modifiable.Tests
         [Test]
         public void DataFiltersAndFunctionFilters_ShareOnePriorityOrder()
         {
-            using ModifiableProperty<int, object> exp = new(0, new ValueBounds<int>(0, int.MaxValue));
+            using var exp = new ModifiableProperty<int, object, string>(0, ValueBounds<int>.AtLeast(0));
 
-            exp.AddOrUpdateFilter(new DeltaFilter("double", DeltaOperation.Scale, 2, Priority: 1));
-            exp.AddOrUpdateFilter("plus-one", delta => delta with { Delta = delta.Delta + 1 });
+            exp.PushFilter(new DeltaFilter<string>(DeltaOperation.Scale, 2, Priority: 1));
+            exp.PushFilter(delta => delta with { Delta = delta.Delta + 1 });
 
             exp.AddDelta(10);
 
@@ -139,37 +157,43 @@ namespace BrunoCPF.Modifiable.Tests
         }
 
         [Test]
-        public void ClearFilters_RemovesDataFiltersToo()
+        public void RemoveFilters_AndClearFilters_RemoveDataFiltersToo()
         {
-            using ModifiableProperty<int, object> exp = new(0, new ValueBounds<int>(0, int.MaxValue));
-            exp.AddOrUpdateFilter(new DeltaFilter("block", DeltaOperation.Block));
+            using var exp = new ModifiableProperty<int, object, string>(0);
+            exp.PushFilter(new DeltaFilter<string>(DeltaOperation.Block, Source: "curse"));
+            exp.PushFilter(new DeltaFilter<string>(DeltaOperation.Scale, 3, Source: "boost"));
+
+            Assert.AreEqual(1, exp.RemoveFilters("curse"));
+            exp.AddDelta(10);
+            Assert.AreEqual(30, exp.CurrentValue);
 
             exp.ClearFilters();
             exp.AddDelta(10);
-
-            Assert.AreEqual(10, exp.CurrentValue);
+            Assert.AreEqual(40, exp.CurrentValue);
         }
 
         [Test]
         public void DataEntries_RequireScalableMath()
         {
-            using ModifiableProperty<TimeSpan, object> duration = new(TimeSpan.Zero, new ValueBounds<TimeSpan>(TimeSpan.Zero, TimeSpan.MaxValue));
+            using var duration = new ModifiableProperty<TimeSpan, object, string>(TimeSpan.Zero);
 
-            Assert.Throws<InvalidOperationException>(() => duration.AddOrUpdateModifier(new Modifier("a", ModifierOperation.Add, 1)));
-            Assert.Throws<InvalidOperationException>(() => duration.AddOrUpdateFilter(new DeltaFilter("a", DeltaOperation.Block)));
+            Assert.Throws<InvalidOperationException>(() => duration.PushModifier(new Modifier<string>(ModifierOperation.Add, 1)));
+            Assert.Throws<InvalidOperationException>(() => duration.PushFilter(new DeltaFilter<string>(DeltaOperation.Block)));
         }
 
         [Test]
-        public void Mutations_AfterDisposeThrow()
+        public void Mutations_AfterDisposeThrowButRemovalDoesNot()
         {
-            ModifiableProperty<int, object> hp = new(100, new ValueBounds<int>(0, 100));
+            var hp = NewInt(100, 100);
+            IDisposable handle = hp.PushModifier(new Modifier<string>(ModifierOperation.Add, 1, Source: "a"));
             hp.Dispose();
 
             Assert.Throws<ObjectDisposedException>(() => hp.AddDelta(-1));
-            Assert.Throws<ObjectDisposedException>(() => hp.AddOrUpdateModifier(new Modifier("a", ModifierOperation.Add, 1)));
-            Assert.Throws<ObjectDisposedException>(() => hp.AddOrUpdateFilter(new DeltaFilter("a", DeltaOperation.Block)));
-            Assert.DoesNotThrow(() => hp.RemoveModifier("a"));
-            Assert.DoesNotThrow(() => hp.RemoveFilter("a"));
+            Assert.Throws<ObjectDisposedException>(() => hp.PushModifier(new Modifier<string>(ModifierOperation.Add, 1)));
+            Assert.Throws<ObjectDisposedException>(() => hp.PushFilter(new DeltaFilter<string>(DeltaOperation.Block)));
+            Assert.DoesNotThrow(handle.Dispose);
+            Assert.AreEqual(0, hp.RemoveModifiers("a"));
+            Assert.AreEqual(0, hp.RemoveFilters("a"));
         }
     }
 }

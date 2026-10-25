@@ -3,11 +3,13 @@ using System;
 namespace BrunoCPF.Modifiable.Core
 {
     /// <summary>
-    /// A closure-free, change-time delta transformation. Unlike
-    /// <see cref="Common.Properties.ValueDeltaFilter{TValue, TContext}"/>, it can be compared, copied,
-    /// saved and described, and <see cref="DeltaPipeline"/> reports when it fired.
+    /// A closure-free, change-time delta transformation. It can be compared, copied, saved and
+    /// described, and <see cref="DeltaPipeline"/> reports when it fired.
     /// </summary>
-    /// <param name="Id">Stable identifier used for replacement, removal and fired-filter reports.</param>
+    /// <typeparam name="TSource">
+    /// What the filter came from (a guard, passive, status, …). Used for attribution and removal only;
+    /// it doesn't have to be unique. Use a reference or nullable type if a filter may have no source.
+    /// </typeparam>
     /// <param name="Operation">How the delta is transformed.</param>
     /// <param name="Value">The operand; ignored by <see cref="DeltaOperation.Block"/>.</param>
     /// <param name="AppliesTo">Which deltas the filter applies to.</param>
@@ -16,19 +18,15 @@ namespace BrunoCPF.Modifiable.Core
     /// The registered operation name; required for <see cref="DeltaOperation.Custom"/> and not
     /// allowed otherwise.
     /// </param>
-    public sealed record DeltaFilter(
-        string Id,
+    /// <param name="Source">Optional origin, reported when the filter fires.</param>
+    public sealed record DeltaFilter<TSource>(
         DeltaOperation Operation,
         double Value = 0d,
         DeltaDirection AppliesTo = DeltaDirection.Any,
         int Priority = 0,
-        string? CustomName = null)
+        string? CustomName = null,
+        TSource? Source = default)
     {
-        /// <summary>Stable identifier used for replacement, removal and fired-filter reports.</summary>
-        public string Id { get; } = string.IsNullOrWhiteSpace(Id)
-            ? throw new ArgumentException("Delta filter id cannot be blank.", nameof(Id))
-            : Id;
-
         /// <summary>How the delta is transformed.</summary>
         public DeltaOperation Operation { get; } = Enum.IsDefined(typeof(DeltaOperation), Operation)
             ? Operation

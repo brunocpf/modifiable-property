@@ -6,7 +6,7 @@ namespace BrunoCPF.Modifiable.Core
     /// rounded for integral types) like the built-in operations.
     /// </summary>
     /// <param name="delta">The incoming delta.</param>
-    /// <param name="operand">The filter's <see cref="DeltaFilter.Value"/>.</param>
+    /// <param name="operand">The filter's <see cref="DeltaFilter{TSource}.Value"/>.</param>
     /// <returns>The transformed delta; must be finite.</returns>
     public delegate double CustomDeltaOperation(double delta, double operand);
 }

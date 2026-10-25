@@ -1,7 +1,7 @@
 namespace BrunoCPF.Modifiable.Core
 {
     /// <summary>
-    /// Which deltas a <see cref="DeltaFilter"/> applies to.
+    /// Which deltas a <see cref="DeltaFilter{TSource}"/> applies to.
     /// </summary>
     public enum DeltaDirection
     {

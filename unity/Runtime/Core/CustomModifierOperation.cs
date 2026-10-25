@@ -6,7 +6,7 @@ namespace BrunoCPF.Modifiable.Core
     /// rounded for integral types) like the built-in operations.
     /// </summary>
     /// <param name="value">The incoming value.</param>
-    /// <param name="operand">The modifier's <see cref="Modifier.Value"/>.</param>
+    /// <param name="operand">The modifier's <see cref="Modifier{TSource}.Value"/>.</param>
     /// <returns>The transformed value; must be finite.</returns>
     public delegate double CustomModifierOperation(double value, double operand);
 }

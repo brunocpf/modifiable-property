@@ -2,7 +2,7 @@ namespace BrunoCPF.Modifiable.Common.Math
 {
     /// <summary>
     /// Value math that can convert to and from <see cref="double"/>, which lets data modifiers and
-    /// delta filters (<see cref="Core.Modifier"/>, <see cref="Core.DeltaFilter"/>) scale, override and
+    /// delta filters (<see cref="Core.Modifier{TSource}"/>, <see cref="Core.DeltaFilter{TSource}"/>) scale, override and
     /// clamp values of this type.
     /// </summary>
     public interface IScalableValueMath<TValue> : IValueMath<TValue> where TValue : struct

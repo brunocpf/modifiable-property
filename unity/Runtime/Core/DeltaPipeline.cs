@@ -8,7 +8,7 @@ namespace BrunoCPF.Modifiable.Core
 {
     /// <summary>
     /// Pure, closure-free processing of a delta: filters in ascending priority (equal priorities keep
-    /// their given order), then bounds.
+    /// their given order), then bounds. Filters need no identity: two equal filters simply both apply.
     /// </summary>
     public static class DeltaPipeline
     {
@@ -18,14 +18,14 @@ namespace BrunoCPF.Modifiable.Core
         /// </summary>
         /// <param name="current">The stored value before the change.</param>
         /// <param name="delta">The requested change.</param>
-        /// <param name="filters">The filters; ids must be unique.</param>
+        /// <param name="filters">The filters.</param>
         /// <param name="bounds">Optional bounds for the resulting value.</param>
         /// <param name="math">Math for <typeparamref name="TValue"/>; defaults to the built-in implementation.</param>
         /// <param name="operations">Registry for <see cref="DeltaOperation.Custom"/> filters.</param>
-        public static DeltaResult<TValue> Apply<TValue>(
+        public static DeltaResult<TValue, TSource> Apply<TValue, TSource>(
             TValue current,
             TValue delta,
-            IEnumerable<DeltaFilter> filters,
+            IEnumerable<DeltaFilter<TSource>> filters,
             ValueBounds<TValue>? bounds = null,
             IScalableValueMath<TValue>? math = null,
             CustomOperations? operations = null)
@@ -37,14 +37,14 @@ namespace BrunoCPF.Modifiable.Core
             }
 
             IScalableValueMath<TValue> resolvedMath = ModifierStack.ResolveMath(math);
-            var fired = new List<string>();
+            var fired = new List<DeltaStep<TValue, TSource>>();
             TValue filtered = delta;
-            foreach (DeltaFilter filter in Order(filters))
+            foreach (DeltaFilter<TSource> filter in Order(filters))
             {
                 TValue next = ApplyFilter(filtered, filter, resolvedMath, operations);
                 if (!EqualityComparer<TValue>.Default.Equals(next, filtered))
                 {
-                    fired.Add(filter.Id);
+                    fired.Add(new DeltaStep<TValue, TSource>(filter.Priority, filtered, next, filter.Source, filter));
                 }
 
                 filtered = next;
@@ -56,7 +56,7 @@ namespace BrunoCPF.Modifiable.Core
                 after = bounds.Clamp(after);
             }
 
-            return new DeltaResult<TValue>(
+            return new DeltaResult<TValue, TSource>(
                 current,
                 delta,
                 filtered,
@@ -66,15 +66,15 @@ namespace BrunoCPF.Modifiable.Core
         }
 
         /// <summary>
-        /// Applies one filter to a delta. Filters whose <see cref="DeltaFilter.AppliesTo"/> does not
-        /// match the delta's sign return it unchanged; zero deltas match only <see cref="DeltaDirection.Any"/>.
+        /// Applies one filter to a delta. Filters whose <see cref="DeltaFilter{TSource}.AppliesTo"/> does
+        /// not match the delta's sign return it unchanged; zero deltas match only <see cref="DeltaDirection.Any"/>.
         /// </summary>
         /// <exception cref="InvalidOperationException">
         /// A custom filter's operation isn't registered, or it returned a non-finite result.
         /// </exception>
-        public static TValue ApplyFilter<TValue>(
+        public static TValue ApplyFilter<TValue, TSource>(
             TValue delta,
-            DeltaFilter filter,
+            DeltaFilter<TSource> filter,
             IScalableValueMath<TValue> math,
             CustomOperations? operations = null)
             where TValue : struct
@@ -115,23 +115,12 @@ namespace BrunoCPF.Modifiable.Core
             return math.FromDouble(result);
         }
 
-        private static DeltaFilter[] Order(IEnumerable<DeltaFilter> filters)
+        private static DeltaFilter<TSource>[] Order<TSource>(IEnumerable<DeltaFilter<TSource>> filters)
         {
-            var seen = new HashSet<string>(StringComparer.Ordinal);
-            var list = new List<DeltaFilter>();
-            foreach (DeltaFilter filter in filters)
+            DeltaFilter<TSource>[] list = filters.ToArray();
+            if (Array.IndexOf(list, null) >= 0)
             {
-                if (filter is null)
-                {
-                    throw new ArgumentException("Filters cannot contain null.", nameof(filters));
-                }
-
-                if (!seen.Add(filter.Id))
-                {
-                    throw new ArgumentException($"Duplicate delta filter id '{filter.Id}'.", nameof(filters));
-                }
-
-                list.Add(filter);
+                throw new ArgumentException("Filters cannot contain null.", nameof(filters));
             }
 
             return list.OrderBy(static filter => filter.Priority).ToArray();

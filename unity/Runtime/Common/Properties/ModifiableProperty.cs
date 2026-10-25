@@ -10,20 +10,27 @@ namespace BrunoCPF.Modifiable.Common.Properties
     /// <summary>
     /// Reactive value that accepts deltas, applies filters and modifiers, and enforces bounds.
     /// </summary>
+    /// <typeparam name="TValue">The value type.</typeparam>
+    /// <typeparam name="TContext">The context carried with each delta.</typeparam>
+    /// <typeparam name="TSource">
+    /// What modifiers and filters come from (a status, item, skill, …). Used for attribution and
+    /// <see cref="RemoveModifiers"/> / <see cref="RemoveFilters"/>; it doesn't have to be unique.
+    /// </typeparam>
     /// <remarks>
     /// This is a reactive wrapper over the pure core in <see cref="BrunoCPF.Modifiable.Core"/>. It accepts
-    /// both closure-free data entries (<see cref="Modifier"/>, <see cref="DeltaFilter"/>) and the
-    /// function-based <see cref="ValueModifier{TValue}"/> / <see cref="ValueDeltaFilter{TValue, TContext}"/>.
-    /// Both kinds share one id space and one priority order.
+    /// both closure-free data entries (<see cref="Modifier{TSource}"/>, <see cref="DeltaFilter{TSource}"/>)
+    /// and functions, in one priority order. Entries have no ids: remove one with the handle returned by
+    /// <c>Push…</c>, or all of a source's entries with <c>Remove…(source)</c>.
     /// </remarks>
-    public sealed class ModifiableProperty<TValue, TContext>
+    public class ModifiableProperty<TValue, TContext, TSource>
         : Observable<TValue>, IReadOnlyModifiableProperty<TValue, TContext>, IDisposable where TValue : struct, IComparable
     {
         private readonly ReactiveProperty<TValue> _base;
         private readonly Subject<ValueDelta<TValue, TContext>> _processedDeltas = new();
-        private readonly Subject<DeltaResult<TValue>> _appliedDeltas = new();
-        private readonly ReactiveProperty<IReadOnlyList<ModifierSlot>> _modifiers;
-        private List<FilterSlot> _filters;
+        private readonly Subject<DeltaResult<TValue, TSource>> _appliedDeltas = new();
+        private readonly ReactiveProperty<IReadOnlyList<ModifierEntry<TValue, TSource>>> _modifiers =
+            new(Array.Empty<ModifierEntry<TValue, TSource>>());
+        private List<FilterEntry> _filters = new();
         private readonly ValueBounds<TValue> _bounds;
         private readonly IValueMath<TValue>? _valueMath;
         private readonly IScalableValueMath<TValue>? _scalableMath;
@@ -44,9 +51,9 @@ namespace BrunoCPF.Modifiable.Common.Properties
 
         /// <summary>
         /// Stream of every applied delta's full outcome: requested, filtered and applied amounts, and the
-        /// ids of the filters that changed it. Emits after <see cref="Base"/> has updated.
+        /// filters that changed it with their sources. Emits after <see cref="Base"/> has updated.
         /// </summary>
-        public Observable<DeltaResult<TValue>> AppliedDeltas => _appliedDeltas;
+        public Observable<DeltaResult<TValue, TSource>> AppliedDeltas => _appliedDeltas;
 
         /// <summary>
         /// Base subject before modifiers are applied.
@@ -59,18 +66,13 @@ namespace BrunoCPF.Modifiable.Common.Properties
         public ReadOnlyReactiveProperty<TValue> Effective { get; }
 
         /// <summary>
-        /// Observable list of current function-based modifiers. Emits whenever any modifier changes.
+        /// Observable list of installed modifiers in evaluation order. Emits whenever it changes.
         /// </summary>
-        public Observable<IReadOnlyList<ValueModifier<TValue>>> Modifiers { get; }
+        public Observable<IReadOnlyList<ModifierEntry<TValue, TSource>>> Modifiers => _modifiers;
 
         /// <summary>
-        /// Observable list of current data modifiers. Emits whenever any modifier changes.
-        /// </summary>
-        public Observable<IReadOnlyList<Modifier>> DataModifiers { get; }
-
-        /// <summary>
-        /// Policy per <see cref="Modifier.StackGroup"/>; groups stack by default. Changing it re-evaluates
-        /// <see cref="Effective"/>.
+        /// Policy per <see cref="Modifier{TSource}.StackGroup"/>; groups stack by default. Changing it
+        /// re-evaluates <see cref="Effective"/>.
         /// </summary>
         public Func<string, StackPolicy>? Stacking
         {
@@ -79,7 +81,7 @@ namespace BrunoCPF.Modifiable.Common.Properties
             {
                 ThrowIfDisposed();
                 _stacking = value;
-                _modifiers.Value = _modifiers.Value.ToList();
+                _modifiers.Value = _modifiers.Value.ToArray();
             }
         }
 
@@ -96,58 +98,19 @@ namespace BrunoCPF.Modifiable.Common.Properties
             set
             {
                 ThrowIfDisposed();
-                foreach (ModifierSlot slot in _modifiers.Value)
+                foreach (ModifierEntry<TValue, TSource> entry in _modifiers.Value)
                 {
-                    RequireCustomOperation(value, slot.Data?.CustomName, isModifier: true);
+                    RequireCustomOperation(value, entry.Data?.CustomName, isModifier: true);
                 }
 
-                foreach (FilterSlot slot in _filters)
+                foreach (FilterEntry entry in _filters)
                 {
-                    RequireCustomOperation(value, slot.Data?.CustomName, isModifier: false);
+                    RequireCustomOperation(value, entry.Data?.CustomName, isModifier: false);
                 }
 
                 _operations = value;
-                _modifiers.Value = _modifiers.Value.ToList();
+                _modifiers.Value = _modifiers.Value.ToArray();
             }
-        }
-
-        /// <summary>
-        /// Creates a modifiable property with optional bounds, initial modifiers/filters, and math helper.
-        /// </summary>
-        public ModifiableProperty(
-            TValue initialValue,
-            ValueBounds<TValue>? bounds = null,
-            IEnumerable<ValueModifier<TValue>>? initialModifiers = null,
-            IEnumerable<ValueDeltaFilter<TValue, TContext>>? initialFilters = null,
-            IValueMath<TValue>? valueMath = null
-        )
-        {
-            _bounds = bounds ?? ValueBounds<TValue>.Unbounded;
-            _valueMath = valueMath ?? ValueMath.GetValueMath<TValue>();
-            _scalableMath = _valueMath as IScalableValueMath<TValue>;
-
-            _modifiers = new ReactiveProperty<IReadOnlyList<ModifierSlot>>(
-                SortByPriority(initialModifiers?.Select(ModifierSlot.From), slot => slot.Priority));
-            _filters = SortByPriority(initialFilters?.Select(FilterSlot.From), slot => slot.Priority);
-
-            _base = new ReactiveProperty<TValue>(_bounds.Clamp(initialValue));
-
-            Base = _base.ToReadOnlyReactiveProperty().AddTo(_disposables);
-
-            Effective = _base
-                .CombineLatest(_modifiers, (baseValue, modifiers) => ApplyModifiers(baseValue, modifiers, steps: null))
-                .ToReadOnlyReactiveProperty()
-                .AddTo(_disposables);
-
-            Modifiers = _modifiers.Select(static slots => (IReadOnlyList<ValueModifier<TValue>>)slots
-                .Where(static slot => slot.Function is not null)
-                .Select(static slot => slot.Function!)
-                .ToList());
-
-            DataModifiers = _modifiers.Select(static slots => (IReadOnlyList<Modifier>)slots
-                .Where(static slot => slot.Data is not null)
-                .Select(static slot => slot.Data!)
-                .ToList());
         }
 
         /// <summary>
@@ -158,6 +121,28 @@ namespace BrunoCPF.Modifiable.Common.Properties
         { }
 
         /// <summary>
+        /// Creates a modifiable property with optional bounds and math helper.
+        /// </summary>
+        public ModifiableProperty(
+            TValue initialValue,
+            ValueBounds<TValue>? bounds = null,
+            IValueMath<TValue>? valueMath = null)
+        {
+            _bounds = bounds ?? ValueBounds<TValue>.Unbounded;
+            _valueMath = valueMath ?? ValueMath.GetValueMath<TValue>();
+            _scalableMath = _valueMath as IScalableValueMath<TValue>;
+
+            _base = new ReactiveProperty<TValue>(_bounds.Clamp(initialValue));
+
+            Base = _base.ToReadOnlyReactiveProperty().AddTo(_disposables);
+
+            Effective = _base
+                .CombineLatest(_modifiers, (baseValue, modifiers) => ApplyModifiers(baseValue, modifiers, steps: null))
+                .ToReadOnlyReactiveProperty()
+                .AddTo(_disposables);
+        }
+
+        /// <summary>
         /// Creates a modifiable property with an optional inclusive <paramref name="min"/> and
         /// <paramref name="max"/>; an omitted side is unbounded.
         /// </summary>
@@ -165,47 +150,20 @@ namespace BrunoCPF.Modifiable.Common.Properties
             TValue initialValue,
             TValue? min = null,
             TValue? max = null,
-            IEnumerable<ValueModifier<TValue>>? initialModifiers = null,
-            IEnumerable<ValueDeltaFilter<TValue, TContext>>? initialFilters = null,
-            IValueMath<TValue>? valueMath = null
-        ) : this(
-            initialValue,
-            new ValueBounds<TValue>(min.HasValue, min.GetValueOrDefault(), max.HasValue, max.GetValueOrDefault()),
-            initialModifiers,
-            initialFilters,
-            valueMath)
+            IValueMath<TValue>? valueMath = null)
+            : this(
+                initialValue,
+                new ValueBounds<TValue>(min.HasValue, min.GetValueOrDefault(), max.HasValue, max.GetValueOrDefault()),
+                valueMath)
         { }
 
-        private static List<T> SortByPriority<T>(IEnumerable<T>? items, Func<T, int> priority)
-        {
-            var list = items?.ToList() ?? new List<T>();
-
-            // List<T>.Sort is unstable; OrderBy is stable, so equal priorities keep the given order.
-            return list.OrderBy(priority).ToList();
-        }
-
         /// <summary>
-        /// Replaces the entry matching <paramref name="isSame"/> in place when its priority is unchanged,
-        /// otherwise inserts <paramref name="item"/> after every entry of equal or lower priority. The
-        /// list is already priority-ordered, so this keeps it sorted and stable (equal priorities stay
-        /// in insertion order) without a sort or extra allocation.
+        /// Inserts <paramref name="item"/> after every entry of equal or lower priority, keeping the list
+        /// priority-ordered and stable (equal priorities stay in insertion order).
         /// </summary>
-        private static void UpsertByPriority<T>(List<T> list, T item, Predicate<T> isSame, Func<T, int> priority)
+        private static void InsertByPriority<T>(List<T> list, T item, Func<T, int> priority)
         {
             int itemPriority = priority(item);
-            int existing = list.FindIndex(isSame);
-
-            if (existing >= 0)
-            {
-                if (priority(list[existing]) == itemPriority)
-                {
-                    list[existing] = item;
-                    return;
-                }
-
-                list.RemoveAt(existing);
-            }
-
             int index = list.Count;
             while (index > 0 && priority(list[index - 1]) > itemPriority)
             {
@@ -234,32 +192,33 @@ namespace BrunoCPF.Modifiable.Common.Properties
 
         private TValue ApplyModifiers(
             TValue baseValue,
-            IReadOnlyList<ModifierSlot> modifiers,
-            List<ModifierStep<TValue>>? steps)
+            IReadOnlyList<ModifierEntry<TValue, TSource>> modifiers,
+            List<ModifierStep<TValue, TSource>>? steps)
         {
-            HashSet<string> suppressed = ModifierStack.FindSuppressed(
-                modifiers.Where(static slot => slot.Data is not null).Select(static slot => slot.Data!),
+            bool[] suppressed = ModifierStack.FindSuppressed(
+                modifiers.Select(static entry => entry.Data).ToArray(),
                 _stacking);
 
             var modifiedValue = baseValue;
 
-            foreach (var slot in modifiers)
+            for (int index = 0; index < modifiers.Count; index++)
             {
+                ModifierEntry<TValue, TSource> entry = modifiers[index];
                 TValue before = modifiedValue;
-                bool isSuppressed = slot.Data is not null && suppressed.Contains(slot.Id);
 
-                if (slot.Function is not null)
+                if (entry.Function is not null)
                 {
-                    modifiedValue = slot.Function.ModifyFunc(modifiedValue);
+                    modifiedValue = entry.Function(modifiedValue);
                 }
-                else if (!isSuppressed)
+                else if (!suppressed[index])
                 {
                     // Data modifiers are only accepted when scalable math (and, for custom ones, a
-                    // registered operation) exists; see AddOrUpdateModifier and Operations.
-                    modifiedValue = ModifierMath.Apply(modifiedValue, slot.Data!, _scalableMath!, _operations);
+                    // registered operation) exists; see PushModifier and Operations.
+                    modifiedValue = ModifierMath.Apply(modifiedValue, entry.Data!, _scalableMath!, _operations);
                 }
 
-                steps?.Add(new ModifierStep<TValue>(slot.Id, slot.Priority, before, modifiedValue, isSuppressed, slot.Data));
+                steps?.Add(new ModifierStep<TValue, TSource>(
+                    entry.Priority, before, modifiedValue, suppressed[index], entry.Source, entry.Data));
             }
 
             return modifiedValue;
@@ -273,20 +232,20 @@ namespace BrunoCPF.Modifiable.Common.Properties
             ThrowIfDisposed();
 
             TValue before = _base.Value;
-            var fired = new List<string>();
+            var fired = new List<DeltaStep<TValue, TSource>>();
             var filtered = delta;
 
-            foreach (var slot in _filters)
+            foreach (var entry in _filters)
             {
-                ValueDelta<TValue, TContext> next = slot.Function is not null
-                    ? slot.Function.FilterFunc(filtered)
+                ValueDelta<TValue, TContext> next = entry.Function is not null
+                    ? entry.Function(filtered)
                     : new ValueDelta<TValue, TContext>(
-                        DeltaPipeline.ApplyFilter(filtered.Delta, slot.Data!, _scalableMath!, _operations),
+                        DeltaPipeline.ApplyFilter(filtered.Delta, entry.Data!, _scalableMath!, _operations),
                         filtered.Context);
 
                 if (!EqualityComparer<TValue>.Default.Equals(next.Delta, filtered.Delta))
                 {
-                    fired.Add(slot.Id);
+                    fired.Add(new DeltaStep<TValue, TSource>(entry.Priority, filtered.Delta, next.Delta, entry.Source, entry.Data));
                 }
 
                 filtered = next;
@@ -296,7 +255,7 @@ namespace BrunoCPF.Modifiable.Common.Properties
             _base.Value = after;
 
             _processedDeltas.OnNext(filtered);
-            _appliedDeltas.OnNext(new DeltaResult<TValue>(
+            _appliedDeltas.OnNext(new DeltaResult<TValue, TSource>(
                 before,
                 delta.Delta,
                 filtered.Delta,
@@ -336,35 +295,28 @@ namespace BrunoCPF.Modifiable.Common.Properties
         }
 
         /// <summary>
-        /// Returns a step-by-step account of how the current modifiers produce <see cref="CurrentValue"/>
-        /// from the current base value. Function-based modifiers appear with a null
-        /// <see cref="ModifierStep{TValue}.Data"/>.
+        /// Returns a step-by-step account of how the installed modifiers produce <see cref="CurrentValue"/>
+        /// from the current base value. Function entries appear with a null
+        /// <see cref="ModifierStep{TValue, TSource}.Data"/>.
         /// </summary>
-        public ModifierBreakdown<TValue> Explain()
+        public ModifierBreakdown<TValue, TSource> Explain()
         {
             ThrowIfDisposed();
-            var steps = new List<ModifierStep<TValue>>();
+            var steps = new List<ModifierStep<TValue, TSource>>();
             TValue baseValue = _base.Value;
             TValue result = ApplyModifiers(baseValue, _modifiers.Value, steps);
-            return new ModifierBreakdown<TValue>(baseValue, result, steps);
+            return new ModifierBreakdown<TValue, TSource>(baseValue, result, steps);
         }
 
         /// <summary>
-        /// Add or replace a modifier with the same ID.
-        /// Higher priority modifiers are applied later; modifiers with equal priority are applied in
-        /// insertion order. Replacing a modifier keeps its position while its priority is unchanged.
-        /// </summary>
-        public void AddOrUpdateModifier(ValueModifier<TValue> modifier) => UpsertModifier(ModifierSlot.From(modifier));
-
-        /// <summary>
-        /// Add or replace a data modifier with the same ID. Ordering follows
-        /// <see cref="AddOrUpdateModifier(ValueModifier{TValue})"/>.
+        /// Installs a data modifier after every modifier of equal or lower priority. Dispose the returned
+        /// handle to remove exactly this entry.
         /// </summary>
         /// <exception cref="InvalidOperationException">
         /// <typeparamref name="TValue"/> has no <see cref="IScalableValueMath{TValue}"/>, or a custom
         /// modifier's operation isn't registered in <see cref="Operations"/>.
         /// </exception>
-        public void AddOrUpdateModifier(Modifier modifier)
+        public IDisposable PushModifier(Modifier<TSource> modifier)
         {
             if (modifier is null)
             {
@@ -373,88 +325,67 @@ namespace BrunoCPF.Modifiable.Common.Properties
 
             RequireScalableMath();
             RequireCustomOperation(_operations, modifier.CustomName, isModifier: true);
-            UpsertModifier(ModifierSlot.From(modifier));
+            return Install(new ModifierEntry<TValue, TSource>(modifier));
         }
 
         /// <summary>
-        /// Add or replace a modifier with the same ID.
-        /// Higher priority modifiers are applied later.
+        /// Installs a function modifier after every modifier of equal or lower priority. Dispose the
+        /// returned handle to remove exactly this entry.
         /// </summary>
-        public void AddOrUpdateModifier(
-            string id,
-            Func<TValue, TValue> modifyFunc,
-            int priority = 0)
+        public IDisposable PushModifier(Func<TValue, TValue> modify, int priority = 0, TSource? source = default)
         {
-            ValueModifier<TValue> modifier = new(id, modifyFunc, priority);
-            AddOrUpdateModifier(modifier);
+            if (modify is null)
+            {
+                throw new ArgumentNullException(nameof(modify));
+            }
+
+            return Install(new ModifierEntry<TValue, TSource>(modify, priority, source));
         }
 
         /// <summary>
-        /// Remove a modifier by ID.
+        /// Removes every modifier whose source equals <paramref name="source"/>.
         /// </summary>
-        public void RemoveModifier(string id)
+        /// <returns>The number of modifiers removed.</returns>
+        public int RemoveModifiers(TSource source)
         {
-            // No-op once disposed: removal is cleanup, and the disposables handed out by
-            // PushModifier routinely run during teardown, when the owning property may already
-            // be gone (e.g. dependency disposal ordering).
+            // No-op once disposed: removal is cleanup that routinely runs during teardown.
             if (_disposed)
+            {
+                return 0;
+            }
+
+            var kept = _modifiers.Value.Where(entry => !EqualityComparer<TSource>.Default.Equals(entry.Source!, source)).ToArray();
+            int removed = _modifiers.Value.Count - kept.Length;
+            if (removed > 0)
+            {
+                _modifiers.Value = kept;
+            }
+
+            return removed;
+        }
+
+        /// <summary>
+        /// Removes every modifier.
+        /// </summary>
+        public void ClearModifiers()
+        {
+            if (_disposed || _modifiers.Value.Count == 0)
             {
                 return;
             }
 
-            List<ModifierSlot> modifiers = _modifiers.Value.ToList();
-            _ = modifiers.RemoveAll(m => m.Id == id);
-            _modifiers.Value = modifiers;
+            _modifiers.Value = Array.Empty<ModifierEntry<TValue, TSource>>();
         }
 
         /// <summary>
-        /// Add a modifier and get an <see cref="IDisposable"/> that removes it when disposed.
-        /// Higher priority modifiers are applied later.
-        /// </summary>
-        public IDisposable PushModifier(ValueModifier<TValue> modifier)
-        {
-            AddOrUpdateModifier(modifier);
-            return Disposable.Create(() => RemoveModifier(modifier.Id));
-        }
-
-        /// <summary>
-        /// Add a data modifier and get an <see cref="IDisposable"/> that removes it when disposed.
-        /// </summary>
-        public IDisposable PushModifier(Modifier modifier)
-        {
-            AddOrUpdateModifier(modifier);
-            return Disposable.Create(() => RemoveModifier(modifier.Id));
-        }
-
-        /// <summary>
-        /// Add a modifier and get an <see cref="IDisposable"/> that removes it when disposed.
-        /// Higher priority modifiers are applied later.
-        /// </summary>
-        public IDisposable PushModifier(
-            string id,
-            Func<TValue, TValue> modifyFunc,
-            int priority = 0)
-        {
-            AddOrUpdateModifier(id, modifyFunc, priority);
-            return Disposable.Create(() => RemoveModifier(id));
-        }
-
-        /// <summary>
-        /// Add or replace a filter with the same ID.
-        /// Filters with equal priority run in insertion order. Replacing a filter keeps its position
-        /// while its priority is unchanged.
-        /// </summary>
-        public void AddOrUpdateFilter(ValueDeltaFilter<TValue, TContext> filter) => UpsertFilter(FilterSlot.From(filter));
-
-        /// <summary>
-        /// Add or replace a data filter with the same ID. Ordering follows
-        /// <see cref="AddOrUpdateFilter(ValueDeltaFilter{TValue, TContext})"/>.
+        /// Installs a data filter after every filter of equal or lower priority. Dispose the returned
+        /// handle to remove exactly this entry.
         /// </summary>
         /// <exception cref="InvalidOperationException">
         /// <typeparamref name="TValue"/> has no <see cref="IScalableValueMath{TValue}"/>, or a custom
         /// filter's operation isn't registered in <see cref="Operations"/>.
         /// </exception>
-        public void AddOrUpdateFilter(DeltaFilter filter)
+        public IDisposable PushFilter(DeltaFilter<TSource> filter)
         {
             if (filter is null)
             {
@@ -463,73 +394,55 @@ namespace BrunoCPF.Modifiable.Common.Properties
 
             RequireScalableMath();
             RequireCustomOperation(_operations, filter.CustomName, isModifier: false);
-            UpsertFilter(FilterSlot.From(filter));
+            return Install(new FilterEntry(filter.Priority, filter.Source, filter, null));
         }
 
         /// <summary>
-        /// Add or replace a filter with the same ID.
+        /// Installs a function filter after every filter of equal or lower priority. Dispose the returned
+        /// handle to remove exactly this entry.
         /// </summary>
-        public void AddOrUpdateFilter(string id, Func<ValueDelta<TValue, TContext>, ValueDelta<TValue, TContext>> filterFunc, int priority = 0)
+        public IDisposable PushFilter(
+            Func<ValueDelta<TValue, TContext>, ValueDelta<TValue, TContext>> filter,
+            int priority = 0,
+            TSource? source = default)
         {
-            ValueDeltaFilter<TValue, TContext> filter = new(id, filterFunc, priority);
-            AddOrUpdateFilter(filter);
-        }
-
-        /// <summary>
-        /// Remove a filter by ID.
-        /// </summary>
-        public void RemoveFilter(string id)
-        {
-            // No-op once disposed; see RemoveModifier.
-            if (_disposed)
+            if (filter is null)
             {
-                return;
+                throw new ArgumentNullException(nameof(filter));
             }
 
-            List<FilterSlot> filters = _filters.ToList();
-            _ = filters.RemoveAll(f => f.Id == id);
-            _filters = filters;
+            return Install(new FilterEntry(priority, source, null, filter));
         }
 
         /// <summary>
-        /// Add a filter and get an <see cref="IDisposable"/> that removes it when disposed.
+        /// Removes every filter whose source equals <paramref name="source"/>.
         /// </summary>
-        public IDisposable PushFilter(ValueDeltaFilter<TValue, TContext> filter)
+        /// <returns>The number of filters removed.</returns>
+        public int RemoveFilters(TSource source)
         {
-            AddOrUpdateFilter(filter);
-            return Disposable.Create(() => RemoveFilter(filter.Id));
+            // No-op once disposed; see RemoveModifiers.
+            if (_disposed)
+            {
+                return 0;
+            }
+
+            int before = _filters.Count;
+            _filters = _filters.Where(entry => !EqualityComparer<TSource>.Default.Equals(entry.Source!, source)).ToList();
+            return before - _filters.Count;
         }
 
         /// <summary>
-        /// Add a data filter and get an <see cref="IDisposable"/> that removes it when disposed.
-        /// </summary>
-        public IDisposable PushFilter(DeltaFilter filter)
-        {
-            AddOrUpdateFilter(filter);
-            return Disposable.Create(() => RemoveFilter(filter.Id));
-        }
-
-        /// <summary>
-        /// Add a filter and get an <see cref="IDisposable"/> that removes it when disposed.
-        /// </summary>
-        public IDisposable PushFilter(string id, Func<ValueDelta<TValue, TContext>, ValueDelta<TValue, TContext>> filterFunc, int priority = 0)
-        {
-            AddOrUpdateFilter(id, filterFunc, priority);
-            return Disposable.Create(() => RemoveFilter(id));
-        }
-
-        /// <summary>
-        /// Remove all filters.
+        /// Removes every filter.
         /// </summary>
         public void ClearFilters()
         {
-            // No-op once disposed; see RemoveModifier.
+            // No-op once disposed; see RemoveModifiers.
             if (_disposed)
             {
                 return;
             }
 
-            _filters = new List<FilterSlot>();
+            _filters = new List<FilterEntry>();
         }
 
         /// <summary>
@@ -568,25 +481,53 @@ namespace BrunoCPF.Modifiable.Common.Properties
         /// Returns a read-only view over this property. The view forwards reads and the value stream
         /// but exposes no mutating members, and — unlike returning the property itself typed as
         /// <see cref="IReadOnlyModifiableProperty{TValue, TContext}"/> — it cannot be cast back to
-        /// <see cref="ModifiableProperty{TValue, TContext}"/> to regain write access. A new lightweight
-        /// view is returned per call; cache it if you need a stable reference.
+        /// <see cref="ModifiableProperty{TValue, TContext, TSource}"/> to regain write access. A new
+        /// lightweight view is returned per call; cache it if you need a stable reference.
         /// </summary>
         public IReadOnlyModifiableProperty<TValue, TContext> AsReadOnly() => new ReadOnlyView(this);
 
-        private void UpsertModifier(ModifierSlot slot)
+        private IDisposable Install(ModifierEntry<TValue, TSource> entry)
         {
             ThrowIfDisposed();
-            List<ModifierSlot> modifiers = _modifiers.Value.ToList();
-            UpsertByPriority(modifiers, slot, m => m.Id == slot.Id, m => m.Priority);
+            List<ModifierEntry<TValue, TSource>> modifiers = _modifiers.Value.ToList();
+            InsertByPriority(modifiers, entry, static m => m.Priority);
             _modifiers.Value = modifiers;
+            return Disposable.Create(() => Uninstall(entry));
         }
 
-        private void UpsertFilter(FilterSlot slot)
+        private void Uninstall(ModifierEntry<TValue, TSource> entry)
+        {
+            // No-op once disposed; see RemoveModifiers.
+            if (_disposed)
+            {
+                return;
+            }
+
+            var kept = _modifiers.Value.Where(existing => !ReferenceEquals(existing, entry)).ToArray();
+            if (kept.Length != _modifiers.Value.Count)
+            {
+                _modifiers.Value = kept;
+            }
+        }
+
+        private IDisposable Install(FilterEntry entry)
         {
             ThrowIfDisposed();
-            List<FilterSlot> filters = _filters.ToList();
-            UpsertByPriority(filters, slot, f => f.Id == slot.Id, f => f.Priority);
+            List<FilterEntry> filters = _filters.ToList();
+            InsertByPriority(filters, entry, static f => f.Priority);
             _filters = filters;
+            return Disposable.Create(() => Uninstall(entry));
+        }
+
+        private void Uninstall(FilterEntry entry)
+        {
+            // No-op once disposed; see RemoveModifiers.
+            if (_disposed)
+            {
+                return;
+            }
+
+            _filters = _filters.Where(existing => !ReferenceEquals(existing, entry)).ToList();
         }
 
         private void RequireScalableMath()
@@ -623,65 +564,38 @@ namespace BrunoCPF.Modifiable.Common.Properties
         }
 
         /// <summary>
-        /// One modifier entry: either function-based or data, never both.
+        /// One installed filter: either data or a function, never both. Reference identity.
         /// </summary>
-        private sealed class ModifierSlot
+        private sealed class FilterEntry
         {
-            private ModifierSlot(string id, int priority, ValueModifier<TValue>? function, Modifier? data)
+            public FilterEntry(
+                int priority,
+                TSource? source,
+                DeltaFilter<TSource>? data,
+                Func<ValueDelta<TValue, TContext>, ValueDelta<TValue, TContext>>? function)
             {
-                Id = id;
                 Priority = priority;
-                Function = function;
+                Source = source;
                 Data = data;
+                Function = function;
             }
 
-            public string Id { get; }
             public int Priority { get; }
-            public ValueModifier<TValue>? Function { get; }
-            public Modifier? Data { get; }
-
-            public static ModifierSlot From(ValueModifier<TValue> modifier) =>
-                new ModifierSlot(modifier.Id, modifier.Priority, modifier, null);
-
-            public static ModifierSlot From(Modifier modifier) =>
-                new ModifierSlot(modifier.Id, modifier.Priority, null, modifier);
-        }
-
-        /// <summary>
-        /// One filter entry: either function-based or data, never both.
-        /// </summary>
-        private sealed class FilterSlot
-        {
-            private FilterSlot(string id, int priority, ValueDeltaFilter<TValue, TContext>? function, DeltaFilter? data)
-            {
-                Id = id;
-                Priority = priority;
-                Function = function;
-                Data = data;
-            }
-
-            public string Id { get; }
-            public int Priority { get; }
-            public ValueDeltaFilter<TValue, TContext>? Function { get; }
-            public DeltaFilter? Data { get; }
-
-            public static FilterSlot From(ValueDeltaFilter<TValue, TContext> filter) =>
-                new FilterSlot(filter.Id, filter.Priority, filter, null);
-
-            public static FilterSlot From(DeltaFilter filter) =>
-                new FilterSlot(filter.Id, filter.Priority, null, filter);
+            public TSource? Source { get; }
+            public DeltaFilter<TSource>? Data { get; }
+            public Func<ValueDelta<TValue, TContext>, ValueDelta<TValue, TContext>>? Function { get; }
         }
 
         /// <summary>
         /// Private read-only adapter. Being private and not deriving from
-        /// <see cref="ModifiableProperty{TValue, TContext}"/>, no consumer downcast can reach the
+        /// <see cref="ModifiableProperty{TValue, TContext, TSource}"/>, no consumer downcast can reach the
         /// writable API.
         /// </summary>
         private sealed class ReadOnlyView : IReadOnlyModifiableProperty<TValue, TContext>
         {
-            private readonly ModifiableProperty<TValue, TContext> _source;
+            private readonly ModifiableProperty<TValue, TContext, TSource> _source;
 
-            public ReadOnlyView(ModifiableProperty<TValue, TContext> source) => _source = source;
+            public ReadOnlyView(ModifiableProperty<TValue, TContext, TSource> source) => _source = source;
 
             public TValue CurrentValue => _source.CurrentValue;
 
@@ -691,5 +605,35 @@ namespace BrunoCPF.Modifiable.Common.Properties
 
             public IDisposable Subscribe(IObserver<TValue> observer) => _source.Subscribe(observer);
         }
+    }
+
+    /// <summary>
+    /// A <see cref="ModifiableProperty{TValue, TContext, TSource}"/> whose modifier and filter sources are
+    /// untyped (<see cref="object"/>), for when you don't need typed attribution.
+    /// </summary>
+    public sealed class ModifiableProperty<TValue, TContext> : ModifiableProperty<TValue, TContext, object>
+        where TValue : struct, IComparable
+    {
+        /// <summary>
+        /// Creates an unbounded modifiable property.
+        /// </summary>
+        public ModifiableProperty(TValue initialValue)
+            : base(initialValue)
+        { }
+
+        /// <summary>
+        /// Creates a modifiable property with optional bounds and math helper.
+        /// </summary>
+        public ModifiableProperty(TValue initialValue, ValueBounds<TValue>? bounds = null, IValueMath<TValue>? valueMath = null)
+            : base(initialValue, bounds, valueMath)
+        { }
+
+        /// <summary>
+        /// Creates a modifiable property with an optional inclusive <paramref name="min"/> and
+        /// <paramref name="max"/>; an omitted side is unbounded.
+        /// </summary>
+        public ModifiableProperty(TValue initialValue, TValue? min = null, TValue? max = null, IValueMath<TValue>? valueMath = null)
+            : base(initialValue, min, max, valueMath)
+        { }
     }
 }

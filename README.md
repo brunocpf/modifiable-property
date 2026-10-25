@@ -140,10 +140,7 @@ hp.AddDelta(-30); // → 70
 hp.AddDelta(+20); // → 90
 
 // Equipment (modifier)
-var sword = hp.PushModifier(
-    id: "sword",
-    modifyFunc: v => v + 10
-);
+var sword = hp.PushModifier(v => v + 10, source: "sword");
 
 Debug.Log(hp.CurrentValue); // → 100
 
@@ -155,8 +152,12 @@ sword.Dispose(); // remove equipment
 # API Overview
 
 ```csharp
-public sealed class ModifiableProperty<TValue, TContext>
+public class ModifiableProperty<TValue, TContext, TSource>   // typed sources
+public sealed class ModifiableProperty<TValue, TContext>     // sources are object
 ```
+
+`TSource` is what an effect came from (a status, item, skill, …). It's optional, doesn't have to be
+unique, and is what `RemoveModifiers(source)` / `RemoveFilters(source)` match on (by `Equals`).
 
 ### ✔ Add deltas
 
@@ -165,8 +166,9 @@ public sealed class ModifiableProperty<TValue, TContext>
 
 ### ✔ Add / remove temporary effects
 
-`PushModifier()`
-`PushFilter()`
+`PushModifier(...)` / `PushFilter(...)` return an `IDisposable` handle that removes exactly that entry.
+`RemoveModifiers(source)` / `RemoveFilters(source)` remove every entry from a source.
+`ClearModifiers()` / `ClearFilters()` remove everything.
 
 ### ✔ Set base value
 
@@ -202,28 +204,22 @@ Filters modify _deltas_ before they affect the base value.
 ### EXP Boost
 
 ```csharp
-exp.PushFilter("boost", d => d with { Delta = (int)(d.Delta * 1.5f) });
+exp.PushFilter(d => d with { Delta = (int)(d.Delta * 1.5f) }, source: "boost");
 ```
 
 ### Block Healing
 
 ```csharp
-hp.PushFilter(
-    "no-healing",
-    d => d.Delta > 0 ? d with { Delta = 0 } : d
-);
+hp.PushFilter(d => d.Delta > 0 ? d with { Delta = 0 } : d, source: "no-healing");
 ```
 
 ### Minimum Damage Rule (“1 damage minimum”)
 
 ```csharp
-hp.PushFilter(
-    "min-dmg",
-    d => d.Delta < 0 && d.Delta > -1 ? new(-1, d.Context) : d
-);
+hp.PushFilter(d => d.Delta < 0 && d.Delta > -1 ? new(-1, d.Context) : d, source: "min-dmg");
 ```
 
-Filters run in **priority order** (the third argument), lowest first. Filters with equal priority run in the order they were added.
+Filters run in **priority order** (the `priority` argument), lowest first. Filters with equal priority run in the order they were added.
 
 ---
 
@@ -234,22 +230,22 @@ Modifiers affect the **final value** after the base is computed.
 ### Equipment
 
 ```csharp
-atk.PushModifier("sword", v => v + 20);
+atk.PushModifier(v => v + 20, source: "sword");
 ```
 
 ### Buff
 
 ```csharp
-atk.PushModifier("atk-up", v => (int)(v * 1.2f));
+atk.PushModifier(v => (int)(v * 1.2f), source: "atk-up");
 ```
 
 ### Debuff
 
 ```csharp
-atk.PushModifier("atk-down", v => (int)(v * 0.5f));
+atk.PushModifier(v => (int)(v * 0.5f), source: "atk-down");
 ```
 
-Modifiers also stack in **priority order** (third argument), lowest first. Modifiers with equal priority apply in the order they were added, so non-commutative modifiers (e.g. add vs. multiply) resolve deterministically.
+Modifiers also stack in **priority order** (the `priority` argument), lowest first. Modifiers with equal priority apply in the order they were added, so non-commutative modifiers (e.g. add vs. multiply) resolve deterministically.
 
 In most cases, you want flat bonuses to have a lower priority than multipliers.
 
@@ -289,7 +285,7 @@ hp.AddDelta(-30, new DamageContext(attacker));
 Filters and subscribers receive structured metadata and adjust their behavior accordingly.
 
 ```csharp
-hp.PushFilter("shield", d =>
+hp.PushFilter(d =>
 {
     if (d.Context is DamageContext dc && dc.Source.HasStatus("armor_break"))
     {
@@ -297,7 +293,7 @@ hp.PushFilter("shield", d =>
     }
 
     return d.Delta < 0 ? d with { Delta = d.Delta + 10 } : d;
-});
+}, source: "shield");
 ```
 
 ---
@@ -349,17 +345,19 @@ has to be plain data. `ModifiableProperty` is built on top of it.
 ```csharp
 using BrunoCPF.Modifiable.Core;
 
-Modifier[] modifiers =
+Modifier<string>[] modifiers =
 {
-    new Modifier("sword", ModifierOperation.Add, 10),
-    new Modifier("boost", ModifierOperation.Multiply, 1.2, Priority: 1),
+    new Modifier<string>(ModifierOperation.Add, 10, Source: "sword"),
+    new Modifier<string>(ModifierOperation.Multiply, 1.2, Priority: 1, Source: "boost"),
 };
 
 int strength = ModifierStack.Evaluate(40, modifiers); // (40 + 10) × 1.2 = 60
 ```
 
 Operations: `Add`, `Multiply`, `Override`, `AtLeast`, `AtMost`. Modifiers run in ascending
-`Priority`; equal priorities keep the order you pass them in.
+`Priority`; equal priorities keep the order you pass them in. Modifiers have no identity: `Source`
+(any type you like — a string, an enum, your own record) is optional, used only for attribution, and
+two equal modifiers simply both apply.
 
 ### Stack groups
 
@@ -367,10 +365,10 @@ Modifiers that share a `StackGroup` combine according to a `StackPolicy`: `Stack
 `HighestOnly` or `LowestOnly`.
 
 ```csharp
-Modifier[] boosts =
+Modifier<string>[] boosts =
 {
-    new Modifier("fire-boost-ring", ModifierOperation.Multiply, 1.25, StackGroup: "boost.fire"),
-    new Modifier("fire-boost-skill", ModifierOperation.Multiply, 1.5, StackGroup: "boost.fire"),
+    new Modifier<string>(ModifierOperation.Multiply, 1.25, StackGroup: "boost.fire", Source: "ring"),
+    new Modifier<string>(ModifierOperation.Multiply, 1.5, StackGroup: "boost.fire", Source: "skill"),
 };
 
 int damage = ModifierStack.Evaluate(100, boosts, stacking: _ => StackPolicy.HighestOnly); // 150
@@ -382,26 +380,27 @@ int damage = ModifierStack.Evaluate(100, boosts, stacking: _ => StackPolicy.High
 debugging:
 
 ```csharp
-ModifierBreakdown<int> breakdown = ModifierStack.Explain(40, modifiers);
-// Base 40 → sword 40→50 → boost 50→60 = 60
+ModifierBreakdown<int, string> breakdown = ModifierStack.Explain(40, modifiers);
+// Base 40 → sword 40→50 → boost 50→60 = 60   (each step carries its Source and Data)
 ```
 
 ### Data filters
 
 ```csharp
-DeltaFilter[] filters =
+DeltaFilter<string>[] filters =
 {
-    new DeltaFilter("guard", DeltaOperation.Scale, 0.5, DeltaDirection.Decrease),
-    new DeltaFilter("damage-cap", DeltaOperation.CapMagnitude, 30, Priority: 1),
+    new DeltaFilter<string>(DeltaOperation.Scale, 0.5, DeltaDirection.Decrease, Source: "guard"),
+    new DeltaFilter<string>(DeltaOperation.CapMagnitude, 30, Priority: 1, Source: "damage-cap"),
 };
 
-DeltaResult<int> hit = DeltaPipeline.Apply(current: 40, delta: -100, filters, new ValueBounds<int>(0, 100));
-// hit.Filtered == -30, hit.After == 10, hit.Applied == -30, hit.FiredFilters == ["guard", "damage-cap"]
+DeltaResult<int, string> hit = DeltaPipeline.Apply(current: 40, delta: -100, filters, new ValueBounds<int>(0, 100));
+// hit.Filtered == -30, hit.After == 10, hit.Applied == -30
+// hit.FiredFilters: guard (-100 → -50), damage-cap (-50 → -30)
 ```
 
 Operations: `Scale`, `Add`, `CapMagnitude`, `Block`. `DeltaDirection` limits a filter to increases,
-decreases or both. `FiredFilters` lists the filters that actually changed the delta, which is what
-you need to show "Guard!" or log a trigger.
+decreases or both. `FiredFilters` lists each filter that actually changed the delta (its `Source`,
+`Data`, and the delta before and after), which is what you need to show "Guard!" or log a trigger.
 
 ### Custom operations
 
@@ -417,11 +416,11 @@ var operations = new CustomOperations()
     // never drop more than the operand in one hit
     .AddDeltaOperation("endure", (delta, floor) => Math.Max(delta, floor));
 
-var cap = new Modifier("str-cap", ModifierOperation.Custom, 999, CustomName: "soft-cap");
+var cap = new Modifier<string>(ModifierOperation.Custom, 999, CustomName: "soft-cap", Source: "str-cap");
 int strength = ModifierStack.Evaluate(1200, new[] { cap }, operations: operations); // 1099
 
-var endure = new DeltaFilter("endure", DeltaOperation.Custom, -99, CustomName: "endure");
-DeltaResult<int> hit = DeltaPipeline.Apply(100, -500, new[] { endure }, operations: operations); // After == 1
+var endure = new DeltaFilter<string>(DeltaOperation.Custom, -99, CustomName: "endure", Source: "endure");
+DeltaResult<int, string> hit = DeltaPipeline.Apply(100, -500, new[] { endure }, operations: operations); // After == 1
 ```
 
 - Operations take `(value or delta, operand)` as `double` and return a `double`. The result is
@@ -440,20 +439,21 @@ values above 2^53 lose precision when scaled.
 
 ### With `ModifiableProperty`
 
-`ModifiableProperty` accepts data entries next to the function-based ones. Both kinds share one id
-space and one priority order.
+`ModifiableProperty` accepts data entries next to function-based ones, in one priority order. Use the
+three-parameter form for typed sources.
 
 ```csharp
-using var attack = new ModifiableProperty<int, object>(100, new ValueBounds<int>(0, 9999));
+using var attack = new ModifiableProperty<int, object, string>(100, new ValueBounds<int>(0, 9999));
 
-using var ring = attack.PushModifier(new Modifier("ring", ModifierOperation.Multiply, 1.25, StackGroup: "boost"));
-using var skill = attack.PushModifier(new Modifier("skill", ModifierOperation.Multiply, 1.5, StackGroup: "boost"));
+attack.PushModifier(new Modifier<string>(ModifierOperation.Multiply, 1.25, StackGroup: "boost", Source: "ring"));
+attack.PushModifier(new Modifier<string>(ModifierOperation.Multiply, 1.5, StackGroup: "boost", Source: "skill"));
 attack.Stacking = _ => StackPolicy.HighestOnly;  // 150
 
-using var guard = attack.PushFilter(new DeltaFilter("guard", DeltaOperation.Scale, 0.5, DeltaDirection.Decrease));
-attack.AppliedDeltas.Subscribe(result => Log(result.FiredFilters));
+using var guard = attack.PushFilter(new DeltaFilter<string>(DeltaOperation.Scale, 0.5, DeltaDirection.Decrease, Source: "guard"));
+attack.AppliedDeltas.Subscribe(result => Log(result.FiredFilters.Select(step => step.Source)));
 
-ModifierBreakdown<int> breakdown = attack.Explain();
+ModifierBreakdown<int, string> breakdown = attack.Explain();
+attack.RemoveModifiers("skill");                 // back to 125
 ```
 
 `AppliedDeltas` emits a `DeltaResult` for every change, reporting function-based filters too. Data
@@ -463,8 +463,8 @@ already implement it.
 For custom operations, set `Operations` before adding custom entries:
 
 ```csharp
-using var strength = new ModifiableProperty<int, object>(1200) { Operations = operations };
-strength.AddOrUpdateModifier(new Modifier("str-cap", ModifierOperation.Custom, 999, CustomName: "soft-cap"));
+using var strength = new ModifiableProperty<int, object, string>(1200) { Operations = operations };
+strength.PushModifier(new Modifier<string>(ModifierOperation.Custom, 999, CustomName: "soft-cap", Source: "str-cap"));
 ```
 
 Adding a custom entry whose name isn't registered throws, and so does replacing `Operations` with a
@@ -477,23 +477,22 @@ registry that's missing a name in use. Evaluation itself never hits an unknown n
 ## Buffs
 
 ```csharp
-IDisposable buff = atk.PushModifier("buff", v => v + 10);
-buff.Dispose(); // removes effect
+IDisposable buff = atk.PushModifier(v => v + 10, source: tarukaja);
+buff.Dispose();                 // removes this entry
+atk.RemoveModifiers(tarukaja);  // or: removes everything the status added
 ```
 
 ## Equipment
 
 ```csharp
-IDisposable equip = atk.PushModifier("sword", v => v + 25);
+IDisposable equip = atk.PushModifier(v => v + 25, source: sword);
 equip.Dispose(); // unequip
 ```
 
 ## Blocking Healing
 
 ```csharp
-var block = hp.PushFilter("block-healing", d =>
-    d.Delta > 0 ? d with { Delta = 0 } : d
-);
+var block = hp.PushFilter(d => d.Delta > 0 ? d with { Delta = 0 } : d, source: "block-healing");
 
 block.Dispose();
 ```
@@ -536,9 +535,11 @@ hp.ProcessedDeltas.Subscribe(d =>
 
 (Equipment, buffs, transformations)
 
-### ✔ Give every effect a unique ID
+### ✔ Tag effects with their source
 
-Prevents duplicates and enables precise removal. You can use GUIDs (`System.Guid.NewGuid().ToString()`) for temporary effects.
+Entries need no ids. Pass the status, item or skill instance as `source` so you can remove
+everything it added with one call and see it in breakdowns. Two identical buffs from two sources just
+stack.
 
 ### ✔ Use disposables for lifetime
 

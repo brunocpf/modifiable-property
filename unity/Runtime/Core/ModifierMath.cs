@@ -15,7 +15,7 @@ namespace BrunoCPF.Modifiable.Core
         /// </summary>
         /// <exception cref="ArgumentException">
         /// <paramref name="operation"/> is <see cref="ModifierOperation.Custom"/>; use the
-        /// <see cref="Modifier"/> overload, which carries the operation name.
+        /// <see cref="Modifier{TSource}"/> overload, which carries the operation name.
         /// </exception>
         public static TValue Apply<TValue>(
             TValue value,
@@ -44,9 +44,9 @@ namespace BrunoCPF.Modifiable.Core
         /// <exception cref="InvalidOperationException">
         /// A custom modifier's operation isn't registered, or it returned a non-finite result.
         /// </exception>
-        public static TValue Apply<TValue>(
+        public static TValue Apply<TValue, TSource>(
             TValue value,
-            Modifier modifier,
+            Modifier<TSource> modifier,
             IScalableValueMath<TValue> math,
             CustomOperations? operations = null)
             where TValue : struct

@@ -3,11 +3,14 @@ using System;
 namespace BrunoCPF.Modifiable.Core
 {
     /// <summary>
-    /// A closure-free, read-time value transformation: an operation and an operand. Unlike
-    /// <see cref="Common.Properties.ValueModifier{TValue}"/>, it can be compared, copied, saved and
-    /// described, and its effect is reported step by step by <see cref="ModifierStack.Explain{TValue}"/>.
+    /// A closure-free, read-time value transformation: an operation and an operand. It can be compared,
+    /// copied, saved and described, and its effect is reported step by step by
+    /// <see cref="ModifierStack.Explain{TValue, TSource}"/>.
     /// </summary>
-    /// <param name="Id">Stable identifier used for replacement, removal and breakdowns.</param>
+    /// <typeparam name="TSource">
+    /// What the modifier came from (a status, item, skill, …). Used for attribution and removal only;
+    /// it doesn't have to be unique. Use a reference or nullable type if a modifier may have no source.
+    /// </typeparam>
     /// <param name="Operation">How <paramref name="Value"/> combines with the incoming value.</param>
     /// <param name="Value">The operand.</param>
     /// <param name="Priority">Lower numbers run earlier; equal priorities keep their given order.</param>
@@ -16,19 +19,15 @@ namespace BrunoCPF.Modifiable.Core
     /// The registered operation name; required for <see cref="ModifierOperation.Custom"/> and not
     /// allowed otherwise.
     /// </param>
-    public sealed record Modifier(
-        string Id,
+    /// <param name="Source">Optional origin, reported in breakdowns.</param>
+    public sealed record Modifier<TSource>(
         ModifierOperation Operation,
         double Value,
         int Priority = 0,
         string? StackGroup = null,
-        string? CustomName = null)
+        string? CustomName = null,
+        TSource? Source = default)
     {
-        /// <summary>Stable identifier used for replacement, removal and breakdowns.</summary>
-        public string Id { get; } = string.IsNullOrWhiteSpace(Id)
-            ? throw new ArgumentException("Modifier id cannot be blank.", nameof(Id))
-            : Id;
-
         /// <summary>How <see cref="Value"/> combines with the incoming value.</summary>
         public ModifierOperation Operation { get; } = Enum.IsDefined(typeof(ModifierOperation), Operation)
             ? Operation

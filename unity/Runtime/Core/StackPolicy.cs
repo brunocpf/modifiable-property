@@ -1,7 +1,7 @@
 namespace BrunoCPF.Modifiable.Core
 {
     /// <summary>
-    /// How modifiers that share a <see cref="Modifier.StackGroup"/> combine.
+    /// How modifiers that share a <see cref="Modifier{TSource}.StackGroup"/> combine.
     /// </summary>
     public enum StackPolicy
     {

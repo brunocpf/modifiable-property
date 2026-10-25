@@ -7,13 +7,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 - **Pure core** (`BrunoCPF.Modifiable.Core`): closure-free, non-reactive building blocks that can be
   compared, copied, saved and described.
-  - `Modifier` (`Add`, `Multiply`, `Override`, `AtLeast`, `AtMost`, with priority and an optional
-    `StackGroup`) and `ModifierStack.Evaluate` / `ModifierStack.Explain`. `StackPolicy` (`Stack`,
-    `HighestOnly`, `LowestOnly`) resolves stack groups; `ModifierBreakdown` lists every step,
-    including suppressed modifiers.
-  - `DeltaFilter` (`Scale`, `Add`, `CapMagnitude`, `Block`, limited by `DeltaDirection`) and
-    `DeltaPipeline.Apply`, which returns a `DeltaResult` with the requested, filtered and applied
-    amounts and the ids of the filters that fired.
+  - `Modifier<TSource>` (`Add`, `Multiply`, `Override`, `AtLeast`, `AtMost`, with priority, an
+    optional `StackGroup` and an optional typed `Source`) and `ModifierStack.Evaluate` /
+    `ModifierStack.Explain`. `StackPolicy` (`Stack`, `HighestOnly`, `LowestOnly`) resolves stack
+    groups; `ModifierBreakdown<TValue, TSource>` lists every step with its source, including
+    suppressed modifiers.
+  - `DeltaFilter<TSource>` (`Scale`, `Add`, `CapMagnitude`, `Block`, limited by `DeltaDirection`) and
+    `DeltaPipeline.Apply`, which returns a `DeltaResult<TValue, TSource>` with the requested, filtered
+    and applied amounts and a `DeltaStep` (source, data, delta before and after) per filter that fired.
+  - Modifiers and filters have no identity: `Source` is optional, needn't be unique, and equal entries
+    simply both apply.
   - `ModifierMath.Apply` and `DeltaPipeline.ApplyFilter` for single operations.
   - **Named custom operations:** `ModifierOperation.Custom` / `DeltaOperation.Custom` with a
     `CustomName`, resolved through a `CustomOperations` registry
@@ -25,16 +28,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   `float` and `double` math; `ValueMath.GetScalableValueMath<T>()`.
 - `RoundingMode` (`TowardZero`, `Floor`, `Ceiling`, `Nearest`) for `IntValueMath` / `LongValueMath`.
   Integral results round toward zero by default and saturate at the type's limits.
-- `ModifiableProperty` now accepts data entries: `AddOrUpdateModifier(Modifier)`,
-  `PushModifier(Modifier)`, `AddOrUpdateFilter(DeltaFilter)`, `PushFilter(DeltaFilter)`. They share
-  one id space and one priority order with function-based entries. New members: `DataModifiers`,
-  `Stacking`, `Explain()` and `AppliedDeltas` (a `DeltaResult` per change, including which filters
-  fired).
+- `ModifiableProperty<TValue, TContext, TSource>` with typed sources. `ModifiableProperty<TValue,
+  TContext>` remains, as a subclass with `object` sources.
+- `ModifiableProperty` accepts data entries (`PushModifier(Modifier<TSource>)`,
+  `PushFilter(DeltaFilter<TSource>)`) next to functions (`PushModifier(func, priority, source)`,
+  `PushFilter(func, priority, source)`), in one priority order. New members: `RemoveModifiers(source)`,
+  `RemoveFilters(source)`, `ClearModifiers()`, `Stacking`, `Operations`, `Explain()` and
+  `AppliedDeltas` (a `DeltaResult` per change, including the filters that fired and their sources).
+  `Modifiers` now emits `ModifierEntry<TValue, TSource>` items (priority, source, data or function).
 
 ### Changed
+- **Breaking: no more string ids.** `ValueModifier<TValue>` and `ValueDeltaFilter<TValue, TContext>`
+  are removed, along with `AddOrUpdateModifier`, `AddOrUpdateFilter`, `RemoveModifier(id)`,
+  `RemoveFilter(id)` and the `initialModifiers` / `initialFilters` constructor parameters.
+  - `PushModifier(id, func, priority)` → `PushModifier(func, priority, source)`; the same for
+    `PushFilter`.
+  - Remove one entry by disposing its handle, or everything from a source with
+    `RemoveModifiers(source)` / `RemoveFilters(source)`.
+  - To replace an entry, remove it and push the new one. The new entry goes to the end of its
+    priority group.
+  - Pushing an equal entry twice applies it twice (ids used to deduplicate).
 - `ModifiableProperty` is rebuilt on the pure core: the base value is stored directly instead of
-  folded through a `Scan` pipeline, and filters and modifiers are evaluated in one pass. The public
-  API and emission order are unchanged (`Base` updates before `ProcessedDeltas` emits).
+  folded through a `Scan` pipeline, and filters and modifiers are evaluated in one pass. Emission
+  order is unchanged (`Base` updates before `ProcessedDeltas` emits).
+- `ModifiableProperty<TValue, TContext, TSource>` isn't sealed (so that the two-parameter form can
+  derive from it); it has no virtual members.
 - The SDK project pins `LangVersion` 9.0 to match the C# version Unity compiles the shared source
   with.
 
@@ -53,10 +71,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Modifiers and filters with equal priority are now applied in insertion order. Previously they were
   ordered with the unstable `List<T>.Sort`, so equal-priority, non-commutative entries (e.g. one
   adds, one multiplies) could resolve in a different order than they were added. Entries are now
-  inserted at the end of their priority group without re-sorting the whole list. Replacing an entry
-  with the same ID keeps its position while its priority is unchanged; removing and re-adding moves
-  it to the end of its priority group. `initialModifiers` / `initialFilters` are stably sorted by
-  priority as well.
+  inserted at the end of their priority group without re-sorting the whole list; removing and
+  re-adding moves an entry to the end of its priority group.
 
 ## [0.3.1] - 2026-06-17
 ### Fixed

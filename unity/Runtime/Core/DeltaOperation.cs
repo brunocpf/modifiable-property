@@ -1,7 +1,7 @@
 namespace BrunoCPF.Modifiable.Core
 {
     /// <summary>
-    /// How a <see cref="DeltaFilter"/> transforms an incoming delta.
+    /// How a <see cref="DeltaFilter{TSource}"/> transforms an incoming delta.
     /// </summary>
     public enum DeltaOperation
     {
@@ -19,7 +19,7 @@ namespace BrunoCPF.Modifiable.Core
 
         /// <summary>
         /// A named operation from a <see cref="CustomOperations"/> registry, given by
-        /// <see cref="DeltaFilter.CustomName"/>.
+        /// <see cref="DeltaFilter{TSource}.CustomName"/>.
         /// </summary>
         Custom,
     }
