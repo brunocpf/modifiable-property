@@ -1,10 +1,12 @@
 using System;
+using Unity.Scripting.LifecycleManagement;
 
 namespace BrunoCPF.Modifiable.Common.Properties
 {
     /// <summary>
     /// Optional inclusive minimum and maximum for a value. A side that was not supplied is unbounded.
     /// </summary>
+    [NoAutoStaticsCleanup] // Unbounded is immutable, so it stays valid across Play sessions.
     public sealed record ValueBounds<TValue> where TValue : IComparable
     {
         /// <summary>

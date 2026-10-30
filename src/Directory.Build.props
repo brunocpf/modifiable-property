@@ -1,0 +1,38 @@
+<Project>
+
+  <!--
+    Shared settings for the two .NET / Godot distributions of the package. Each project owns no
+    source files: it compiles the matching Unity assembly folder under ../../unity/Runtime, so the
+    NuGet packages split exactly like the Unity assemblies. Unity ignores these projects (it
+    compiles the source via the .asmdef files instead).
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <!-- Source lives under unity/Runtime, not next to the projects. -->
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <!-- Ship XML docs for consumer IntelliSense; CS1591 = "missing doc on public member". -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <!-- NuGet package metadata (for `dotnet pack` / Godot consumption). -->
+  <PropertyGroup>
+    <Version>0.5.0</Version>
+    <Authors>Bruno Fernandes</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/brunocpf/modifiable-property</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://github.com/brunocpf/modifiable-property</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <!-- Repo README shows on the NuGet.org package pages. -->
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+</Project>

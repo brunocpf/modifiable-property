@@ -1,16 +1,14 @@
 {
-  "name": "BrunoCPF.Modifiable",
+  "name": "BrunoCPF.Modifiable.Core",
   "rootNamespace": "BrunoCPF.Modifiable",
-  "references": [
-    "R3.Unity"
-  ],
+  "references": [],
   "includePlatforms": [],
   "excludePlatforms": [],
   "allowUnsafeCode": false,
-  "overrideReferences": false,
+  "overrideReferences": true,
   "precompiledReferences": [],
   "autoReferenced": true,
   "defineConstraints": [],
   "versionDefines": [],
-  "noEngineReferences": false
+  "noEngineReferences": true
 }

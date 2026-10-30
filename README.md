@@ -43,8 +43,21 @@ It is ideal for:
 ## Installation
 
 The library code is **engine-agnostic** (no `UnityEngine` / `Godot` references) and lives in
-one place — `unity/Runtime`. Unity compiles it via the UPM `.asmdef`; the SDK project in `src/`
-compiles the *same* files for Godot / plain .NET / NuGet. Edit once, both engines build it.
+one place — `unity/Runtime`. Unity compiles it via the UPM `.asmdef` files; the SDK projects in
+`src/` compile the *same* files for Godot / plain .NET / NuGet. Edit once, both engines build it.
+
+It ships as two assemblies, split the same way in Unity and on NuGet:
+
+| Assembly / NuGet package | Contains | Depends on |
+|---|---|---|
+| `BrunoCPF.Modifiable.Core` | `ModifierStack`, `DeltaPipeline`, `Modifier`/`DeltaFilter`, `CustomOperations`, value math (`BrunoCPF.Modifiable.Common.Math`), `ValueBounds` | nothing |
+| `BrunoCPF.Modifiable` | `ModifiableProperty`, `IReadOnlyModifiableProperty`, `ModifierEntry`, `ValueDelta` | `BrunoCPF.Modifiable.Core`, R3 |
+
+Both Unity assemblies set `noEngineReferences`, so an engine-free assembly (`noEngineReferences`,
+`overrideReferences`, `autoReferenced: false`) can reference them. If you only need the pure core,
+reference `BrunoCPF.Modifiable.Core` alone: your assembly never sees R3 (on NuGet, the Core package
+doesn't depend on it at all). Namespaces don't follow
+the assemblies: `ValueBounds` stays in `BrunoCPF.Modifiable.Common.Properties`, for example.
 
 ### Unity (UPM)
 
@@ -66,19 +79,35 @@ Or in `Packages/manifest.json`:
 
 > The package lives in the `unity/` subfolder, hence the `?path=unity` suffix.
 
-**R3 prerequisite (Unity):** install R3 core via [NuGetForUnity](https://github.com/GlitchEnzo/NuGetForUnity)
-(the `R3` NuGet package) plus the [`R3.Unity`](https://github.com/Cysharp/R3) package for the engine
-integration, before adding this package.
+**R3 prerequisite (Unity):** the reactive `BrunoCPF.Modifiable` assembly references R3's core
+`R3.dll` as a precompiled reference, so install the `R3` NuGet package via
+[NuGetForUnity](https://github.com/GlitchEnzo/NuGetForUnity) before adding this package.
+[`R3.Unity`](https://github.com/Cysharp/R3) (the engine integration: `AddTo(this)`, frame providers)
+is needed only by your own code and the sample, not by the package. R3 must be installed even if
+you only use `BrunoCPF.Modifiable.Core`, because Unity compiles every assembly in the package and
+the reactive one fails without `R3.dll`; the core assembly itself never references it.
+
+**Assembly definitions:** Assembly-CSharp sees both assemblies automatically. Your own `.asmdef`
+files reference `BrunoCPF.Modifiable.Core` for the pure core, plus `BrunoCPF.Modifiable` for
+`ModifiableProperty` (an engine-free one also lists `R3.dll` under precompiled references).
+
+**Unity 7 (CoreCLR):** Unity's lifecycle analyzer (UAL0010/UAL0013) asks types with static members
+to declare how they're reset between Play sessions. The core's only statics are immutable
+(`ValueMath.Int`/`Long`/`Float`/`Double`, `ValueBounds<T>.Unbounded`), so they're marked
+`NoAutoStaticsCleanup` through an internal polyfill of Unity's attribute, and the package compiles
+without lifecycle warnings.
 
 ### Godot 4 (.NET) / plain .NET
 
 The library targets `netstandard2.1`, which Godot 4's .NET runtime and any modern .NET app
-consume directly; R3 flows in transitively.
+consume directly. `BrunoCPF.Modifiable` brings in `BrunoCPF.Modifiable.Core` and R3 transitively;
+`BrunoCPF.Modifiable.Core` has no dependencies.
 
 **Install from [NuGet.org](https://www.nuget.org/packages/BrunoCPF.Modifiable):**
 
 ```bash
-dotnet add package BrunoCPF.Modifiable
+dotnet add package BrunoCPF.Modifiable        # ModifiableProperty + the core (pulls in R3)
+dotnet add package BrunoCPF.Modifiable.Core   # the pure core only, no dependencies
 ```
 
 **Or reference the source project** (for local iteration / debugging into the library):
@@ -86,6 +115,7 @@ dotnet add package BrunoCPF.Modifiable
 ```xml
 <ItemGroup>
   <ProjectReference Include="path/to/modifiable-property/src/BrunoCPF.Modifiable/BrunoCPF.Modifiable.csproj" />
+  <!-- or, for the pure core only: src/BrunoCPF.Modifiable.Core/BrunoCPF.Modifiable.Core.csproj -->
 </ItemGroup>
 ```
 
@@ -658,21 +688,23 @@ ally.Hp.AddDelta(+20, new HealCtx(ally));
 
 ```
 .
-├── src/BrunoCPF.Modifiable/          # SDK library (Godot / .NET / NuGet) — compiles the
-│                                     #   source under unity/Runtime; no duplicated code
+├── src/                              # SDK libraries (Godot / .NET / NuGet) — compile the
+│   ├── BrunoCPF.Modifiable.Core/     #   source under unity/Runtime; no duplicated code
+│   └── BrunoCPF.Modifiable/
 ├── tests/BrunoCPF.Modifiable.Tests/  # engine-free NUnit suite (dotnet test)
 ├── tests/BrunoCPF.Modifiable.SampleCheck/ # compiles unity/Samples~ at C# 9 against a UnityEngine stub
 ├── unity/                            # UPM package (consumed via ?path=unity)
 │   ├── package.json
 │   ├── Runtime/                      # the actual source — single source of truth
-│   │   ├── Core/                     #   pure, closure-free modifiers, filters and evaluators
-│   │   └── Common/                   #   reactive ModifiableProperty, value math, bounds
+│   │   ├── BrunoCPF.Modifiable.Core/ #   pure assembly: modifiers, filters, evaluators, math, bounds
+│   │   └── BrunoCPF.Modifiable/      #   reactive assembly: ModifiableProperty (R3)
 │   └── Samples~/                     # Unity-only MonoBehaviour sample
 └── BrunoCPF.Modifiable.slnx
 ```
 
-The library code lives **once**, under `unity/Runtime`. Unity compiles it via the `.asmdef`;
-the `src/` project `<Compile Include>`s the same files for everyone else. Keep that code free
+The library code lives **once**, under `unity/Runtime`. Unity compiles each assembly folder via
+its `.asmdef`; each `src/` project `<Compile Include>`s the matching folder for everyone else.
+`AssemblyLayoutTests` keeps the core free of R3 and UnityEngine in both builds. Keep that code free
 of both `UnityEngine` and `Godot` types — engine-specific glue belongs in `unity/` overlays or
 a future Godot addon, never in the shared source.
 

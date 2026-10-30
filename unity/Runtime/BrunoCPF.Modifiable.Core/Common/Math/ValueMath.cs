@@ -1,8 +1,11 @@
+using Unity.Scripting.LifecycleManagement;
+
 namespace BrunoCPF.Modifiable.Common.Math
 {
     /// <summary>
     /// Helper factory for resolving <see cref="IValueMath{TValue}"/> implementations.
     /// </summary>
+    [NoAutoStaticsCleanup] // The instances are stateless, so they stay valid across Play sessions.
     public static class ValueMath
     {
         /// <summary>

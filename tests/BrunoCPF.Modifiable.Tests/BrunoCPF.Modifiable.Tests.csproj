@@ -24,6 +24,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../../src/BrunoCPF.Modifiable.Core/BrunoCPF.Modifiable.Core.csproj" />
     <ProjectReference Include="../../src/BrunoCPF.Modifiable/BrunoCPF.Modifiable.csproj" />
   </ItemGroup>
 

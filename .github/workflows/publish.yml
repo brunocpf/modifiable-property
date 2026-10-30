@@ -35,9 +35,11 @@ jobs:
       - name: Test (gate the release)
         run: dotnet test BrunoCPF.Modifiable.slnx -c Release
 
+      # Packs both packages at the same version: BrunoCPF.Modifiable.Core (no dependencies) and
+      # BrunoCPF.Modifiable (depends on the Core package and R3).
       - name: Pack
         run: >
-          dotnet pack src/BrunoCPF.Modifiable/BrunoCPF.Modifiable.csproj
+          dotnet pack BrunoCPF.Modifiable.slnx
           -c Release -p:Version=$VERSION -o out
 
       # Exchange the OIDC token for a short-lived (1 h) NuGet API key, right

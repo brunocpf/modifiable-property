@@ -5,6 +5,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-29
+### Changed
+- **Breaking (assembly layout):** the package is split into two assemblies, in Unity and on NuGet.
+  Namespaces and APIs are unchanged; code using 0.4.0 compiles again after the reference changes below.
+  - `BrunoCPF.Modifiable.Core` (new NuGet package, no dependencies): `ModifierStack`, `DeltaPipeline`,
+    modifiers and filters, `CustomOperations`, value math and `ValueBounds`.
+  - `BrunoCPF.Modifiable`: `ModifiableProperty`, `IReadOnlyModifiableProperty`, `ModifierEntry` and
+    `ValueDelta`; it depends on `BrunoCPF.Modifiable.Core` and R3.
+- Both Unity assemblies are engine-free (`noEngineReferences`). The reactive one references R3's
+  core `R3.dll` (installed with NuGetForUnity) instead of the `R3.Unity` asmdef, so engine-free
+  assemblies can use either one. `R3.Unity` is no longer required by the package.
+- Your own `.asmdef` files that reference `BrunoCPF.Modifiable` must also reference
+  `BrunoCPF.Modifiable.Core`. Assembly-CSharp needs no change. Binaries built against 0.4.0 need a
+  recompile, since the core types moved assembly.
+- Unity's source moved from `unity/Runtime/{Core,Common}` to `unity/Runtime/BrunoCPF.Modifiable.Core`
+  and `unity/Runtime/BrunoCPF.Modifiable`; file GUIDs are kept.
+
+### Fixed
+- Unity 7 (CoreCLR) lifecycle analyzer warnings UAL0010/UAL0013 on `ValueMath` and
+  `ValueBounds<T>.Unbounded`: their immutable statics are marked `NoAutoStaticsCleanup` through an
+  internal polyfill of Unity's attribute.
+
 ## [0.4.0] - 2026-10-25
 ### Added
 - **Pure core** (`BrunoCPF.Modifiable.Core`): closure-free, non-reactive building blocks that can be

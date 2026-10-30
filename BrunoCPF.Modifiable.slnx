@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/BrunoCPF.Modifiable.Core/BrunoCPF.Modifiable.Core.csproj" />
     <Project Path="src/BrunoCPF.Modifiable/BrunoCPF.Modifiable.csproj" />
   </Folder>
   <Folder Name="/tests/">

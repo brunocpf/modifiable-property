@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The engine-free core: ModifierStack, DeltaPipeline, Modifier/DeltaFilter, value math and
+    ValueBounds. No package dependencies, so a consumer that only evaluates modifiers doesn't pull
+    in R3. Mirrors the BrunoCPF.Modifiable.Core Unity assembly.
+  -->
+
+  <PropertyGroup>
+    <RootNamespace>BrunoCPF.Modifiable</RootNamespace>
+    <AssemblyName>BrunoCPF.Modifiable.Core</AssemblyName>
+    <PackageId>BrunoCPF.Modifiable.Core</PackageId>
+    <Description>Engine-free modifier math for RPG-style stat systems: modifier stacks, delta pipelines and bounds, with no dependencies.</Description>
+    <PackageTags>rpg;jrpg;stats;modifiers;godot;unity</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../../unity/Runtime/BrunoCPF.Modifiable.Core/**/*.cs" />
+  </ItemGroup>
+
+</Project>
